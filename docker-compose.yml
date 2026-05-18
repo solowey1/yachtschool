@@ -1,7 +1,7 @@
 services:
-  postgres:
+  db:
     image: postgres:16-alpine
-    container_name: yachtschool-postgres
+    container_name: yachtschool-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-yachtschool}
@@ -20,11 +20,11 @@ services:
     container_name: yachtschool-bot
     restart: unless-stopped
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-yachtschool}:${POSTGRES_PASSWORD:-yachtschool}@postgres:5432/${POSTGRES_DB:-yachtschool}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-yachtschool}:${POSTGRES_PASSWORD:-yachtschool}@db:5432/${POSTGRES_DB:-yachtschool}
       DAILY_DELIVERY_TIME: ${DAILY_DELIVERY_TIME:-17:00}
       DAILY_DELIVERY_TIMEZONE: ${DAILY_DELIVERY_TIMEZONE:-Europe/Moscow}
       DAILY_QUESTIONS_COUNT: ${DAILY_QUESTIONS_COUNT:-5}

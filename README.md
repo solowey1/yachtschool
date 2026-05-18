@@ -105,15 +105,35 @@ app/
 
    ```bash
    docker compose up -d --build
+   # или коротко:
+   ./manage.sh up
    ```
 
-   Compose поднимет Postgres 16 + бот. При старте контейнера: накатываются миграции Alembic, рендерятся флаги и пенанты в `assets/flags/` (кешируются между запусками).
+   Compose поднимет Postgres 16 (сервис `db`) + бот. При старте контейнера бота накатываются миграции Alembic и рендерятся флаги и пенанты в `assets/flags/` (кешируются между запусками).
 
 3. Логи:
 
    ```bash
-   docker compose logs -f bot
+   ./manage.sh logs bot
    ```
+
+### `manage.sh`
+
+В корне есть Bash-скрипт-обёртка, чтобы не запоминать длинные `docker compose …`:
+
+| Команда | Что делает |
+|---|---|
+| `./manage.sh build [name]` | `docker compose build --no-cache [name]` |
+| `./manage.sh up [name]` | `docker compose up -d [name]` |
+| `./manage.sh down [name]` | целиком — `docker compose down`; для одного сервиса — `rm -fs` |
+| `./manage.sh update [name]` | `git pull` → чистая пересборка → `up -d` (для одного сервиса использует `rm -fsv` вместо глобального `down -v`) |
+| `./manage.sh logs [name]` | `docker compose logs -f --tail=100 [name]` |
+| `./manage.sh health` | `docker compose ps` со статусами и healthcheck-ами |
+| `./manage.sh help` | справка |
+
+`[name]` — опционально, может быть `bot` или `db`. Без него команда применяется ко всему стэку.
+
+Типичный сценарий обновления с прода: `./manage.sh update bot` пулит ветку, удаляет контейнер бота, пересобирает образ и поднимает заново — БД при этом не трогается.
 
 ### Переменные окружения
 
@@ -166,5 +186,7 @@ docker compose exec bot alembic revision --autogenerate -m "your_change"
 Python 3.12, aiogram 3.13, SQLAlchemy 2.x (async + asyncpg), Alembic, APScheduler, Pillow, pydantic 2, pytz, structlog. PostgreSQL 16 в compose.
 
 ## Лицензия и источники
+
+Код — под лицензией [MIT](./LICENSE): использовать, изменять, распространять, в т. ч. в коммерческих проектах, можно свободно — единственное условие — сохранять текст лицензии и упоминание авторства.
 
 Тексты однобуквенных сигналов, названия букв и фонетического алфавита, описания заменяющих и ответного вымпелов адаптированы из МСС-65 (Международный свод сигналов, ред. 1965 г.). Графика флагов и пенантов отрисовывается программно по описаниям из свода — это MVP-приближения, для прод-использования можно заменить на SVG-ассеты, точечно подменив `flag_renderer.py` / `pennant_renderer.py` (остальной код менять не потребуется).
