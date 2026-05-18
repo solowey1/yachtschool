@@ -1,0 +1,44 @@
+[project]
+name = "yachtschool-bot"
+version = "0.1.0"
+description = "Telegram bot for studying maritime signals (МСС-65 and beyond)"
+requires-python = ">=3.12"
+dependencies = [
+    "aiogram==3.13.1",
+    "SQLAlchemy[asyncio]==2.0.36",
+    "asyncpg==0.30.0",
+    "alembic==1.13.3",
+    "APScheduler==3.10.4",
+    "pytz==2024.2",
+    "Pillow==11.0.0",
+    "pydantic==2.10.3",
+    "pydantic-settings==2.6.1",
+    "python-dotenv==1.0.1",
+    "structlog==24.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.3",
+    "pytest-asyncio==0.24.0",
+    "ruff==0.7.4",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
