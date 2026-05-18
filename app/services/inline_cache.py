@@ -11,6 +11,7 @@ import asyncio
 from pathlib import Path
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramRetryAfter
 from aiogram.types import FSInputFile
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -61,6 +62,10 @@ async def preload(
 ) -> int:
     """Send every flag/pennant to `chat_id` and persist Telegram's file_id.
 
+    Each successful upload is committed individually so a late failure
+    (e.g. user blocks the bot, or HTML in the «done» message is rejected)
+    doesn't roll back already-captured file_ids alongside it.
+
     Returns the number of new entries written. Skips codes already cached
     when `only_missing` is True (default).
     """
@@ -78,9 +83,18 @@ async def preload(
             )
             file_id = sent.photo[-1].file_id  # largest size
             await set_file_id(session, code, file_id)
+            await session.commit()
             written += 1
-            # Telegram caps photo bursts; be polite.
-            await asyncio.sleep(0.1)
+            # Be polite to Telegram's rate limits — bursts of 40 photos to one
+            # chat will trip flood control if we go too fast.
+            await asyncio.sleep(0.25)
+        except TelegramRetryAfter as exc:
+            logger.warning("inline.preload_rate_limited", code=code, retry_after=exc.retry_after)
+            await asyncio.sleep(exc.retry_after + 1)
         except Exception as exc:  # noqa: BLE001
             logger.warning("inline.preload_failed", code=code, error=str(exc))
+            try:
+                await session.rollback()
+            except Exception:  # noqa: BLE001
+                pass
     return written
