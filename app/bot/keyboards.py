@@ -66,7 +66,7 @@ def settings_lang_picker(lang: str) -> InlineKeyboardMarkup:
         for code in translator().available_languages()
     ]
     rows.append(
-        [_btn(t("menu.back_to_section", lang), SettingsCB(action="view", field="").pack())]
+        [_btn(t("menu.back_to_section", lang), NavCB(target="settings").pack())]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -78,7 +78,7 @@ def settings_count_picker(lang: str) -> InlineKeyboardMarkup:
             for n in COUNT_PRESETS
         ],
         [_btn(t("settings.btn_reset", lang), SettingsCB(action="reset", field="count").pack())],
-        [_btn(t("menu.back_to_section", lang), SettingsCB(action="view", field="").pack())],
+        [_btn(t("menu.back_to_section", lang), NavCB(target="settings").pack())],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -101,7 +101,7 @@ def settings_time_picker(lang: str) -> InlineKeyboardMarkup:
         )
     rows.append([_btn(t("settings.btn_reset", lang), SettingsCB(action="reset", field="time").pack())])
     rows.append(
-        [_btn(t("menu.back_to_section", lang), SettingsCB(action="view", field="").pack())]
+        [_btn(t("menu.back_to_section", lang), NavCB(target="settings").pack())]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

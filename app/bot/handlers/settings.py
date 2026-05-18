@@ -77,7 +77,7 @@ async def open_settings(cq: CallbackQuery, user: User, lang: str) -> None:
 async def view_settings_subpage(
     cq: CallbackQuery, callback_data: SettingsCB, user: User, lang: str
 ) -> None:
-    field = callback_data.field
+    field = callback_data.field or ""
     if field == "lang" and _has_multiple_languages():
         await _swap(cq, t("settings.choose_lang", lang), settings_lang_picker(lang))
     elif field == "count":
@@ -109,7 +109,8 @@ async def apply_setting(
     user: User,
     lang: str,
 ) -> None:
-    field, value = callback_data.field, callback_data.value
+    field = callback_data.field or ""
+    value = callback_data.value or ""
     if field == "lang":
         if value in translator().available_languages():
             user.language = value
@@ -139,9 +140,10 @@ async def reset_setting(
     user: User,
     lang: str,
 ) -> None:
-    if callback_data.field == "count":
+    field = callback_data.field or ""
+    if field == "count":
         user.daily_questions_count = None
-    elif callback_data.field == "time":
+    elif field == "time":
         user.delivery_time_utc = None
     await session.flush()
 

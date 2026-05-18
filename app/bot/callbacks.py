@@ -61,14 +61,18 @@ class RefDetailCB(CallbackData, prefix="rd"):
 class SettingsCB(CallbackData, prefix="st"):
     """Settings navigation and mutation.
 
-    action: 'view'  — open a settings page (field selects which one: root/lang/count/time)
+    action: 'view'  — open a settings page (field selects which one: lang/count/time)
             'set'   — apply value to field
             'reset' — clear user's override, fall back to env default
 
     Time values are encoded as 'HHMM' (no colon) — colon is the CallbackData
     separator in aiogram and would corrupt parsing.
+
+    `field` and `value` are nullable: aiogram decodes empty string segments
+    as None on unpack, so declaring them as `str` would trip pydantic with
+    ValidationError → handler never runs → user sees eternal loading.
     """
 
     action: str
-    field: str = ""
-    value: str = ""
+    field: str | None = None
+    value: str | None = None
