@@ -7,6 +7,7 @@ from aiogram.types import Message
 from app.bot.keyboards import main_menu
 from app.config import settings
 from app.i18n import t
+from app.services import user_settings
 
 router = Router(name="start")
 
@@ -21,8 +22,9 @@ async def cmd_start(message: Message, lang: str) -> None:
             "start.welcome",
             lang,
             name=name,
-            time=settings.daily_delivery_time,
-            tz=settings.daily_delivery_timezone,
+            time=user_settings.env_default_time_str(),
+            tz=user_settings.env_default_timezone(),
+            count=user_settings.env_default_count(),
         ),
         reply_markup=main_menu(lang),
     )

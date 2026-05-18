@@ -2,7 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -18,6 +27,11 @@ class User(Base):
     first_name: Mapped[str | None] = mapped_column(String(128))
     language: Mapped[str] = mapped_column(String(8), default="ru", nullable=False)
     daily_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    #: Per-user override for the daily delivery time, expressed as "HH:MM" in UTC.
+    #: NULL means «use the system default» (env's DAILY_DELIVERY_TIME, in DAILY_DELIVERY_TIMEZONE).
+    delivery_time_utc: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    #: Per-user override for daily question count. NULL = use env default.
+    daily_questions_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from app.bot.callbacks import NavCB, NextCB, RefCB, RefDetailCB, TopicCB
-from app.i18n import t
+from app.bot.callbacks import NavCB, NextCB, RefCB, RefDetailCB, SettingsCB, TopicCB
+from app.i18n import t, translator
 from app.training.mcs65 import data as mcs65_data
 from app.training.mcs65 import pennants as mcs65_pennants
 from app.training.registry import registry
+
+# Picker presets — small and curated, not «every possible value».
+COUNT_PRESETS: tuple[int, ...] = (1, 3, 5, 7, 10)
+HOUR_PRESETS: tuple[str, ...] = tuple(f"{h:02d}:00" for h in range(24))
 
 # All reference sections live here so we don't sprinkle the codes across handlers.
 REFERENCE_SECTIONS: tuple[str, ...] = (
@@ -30,8 +34,76 @@ def main_menu(lang: str) -> InlineKeyboardMarkup:
             [_btn(t("menu.section.reference", lang), NavCB(target="reference").pack())],
             [_btn(t("menu.section.training", lang), NavCB(target="training").pack())],
             [_btn(t("menu.section.stats", lang), NavCB(target="stats").pack())],
+            [_btn(t("menu.section.settings", lang), NavCB(target="settings").pack())],
         ]
     )
+
+
+def settings_root(lang: str, *, language_pickable: bool) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if language_pickable:
+        rows.append(
+            [_btn(t("settings.btn_lang", lang), SettingsCB(action="view", field="lang").pack())]
+        )
+    rows.append(
+        [_btn(t("settings.btn_count", lang), SettingsCB(action="view", field="count").pack())]
+    )
+    rows.append(
+        [_btn(t("settings.btn_time", lang), SettingsCB(action="view", field="time").pack())]
+    )
+    rows.append([_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def settings_lang_picker(lang: str) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            _btn(
+                t(f"settings.lang_name.{code}", lang) or code.upper(),
+                SettingsCB(action="set", field="lang", value=code).pack(),
+            )
+        ]
+        for code in translator().available_languages()
+    ]
+    rows.append(
+        [_btn(t("menu.back_to_section", lang), SettingsCB(action="view", field="").pack())]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def settings_count_picker(lang: str) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            _btn(str(n), SettingsCB(action="set", field="count", value=str(n)).pack())
+            for n in COUNT_PRESETS
+        ],
+        [_btn(t("settings.btn_reset", lang), SettingsCB(action="reset", field="count").pack())],
+        [_btn(t("menu.back_to_section", lang), SettingsCB(action="view", field="").pack())],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def settings_time_picker(lang: str) -> InlineKeyboardMarkup:
+    """24 UTC hours laid out as 4 rows × 6 columns + reset + back."""
+    rows: list[list[InlineKeyboardButton]] = []
+    for r in range(4):
+        rows.append(
+            [
+                _btn(
+                    HOUR_PRESETS[r * 6 + c],
+                    # CallbackData uses ":" as a separator — encode as HHMM here.
+                    SettingsCB(
+                        action="set", field="time", value=HOUR_PRESETS[r * 6 + c].replace(":", "")
+                    ).pack(),
+                )
+                for c in range(6)
+            ]
+        )
+    rows.append([_btn(t("settings.btn_reset", lang), SettingsCB(action="reset", field="time").pack())])
+    rows.append(
+        [_btn(t("menu.back_to_section", lang), SettingsCB(action="view", field="").pack())]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def training_menu(lang: str) -> InlineKeyboardMarkup:

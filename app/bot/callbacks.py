@@ -56,3 +56,19 @@ class RefDetailCB(CallbackData, prefix="rd"):
     """
 
     code: str
+
+
+class SettingsCB(CallbackData, prefix="st"):
+    """Settings navigation and mutation.
+
+    action: 'view'  — open a settings page (field selects which one: root/lang/count/time)
+            'set'   — apply value to field
+            'reset' — clear user's override, fall back to env default
+
+    Time values are encoded as 'HHMM' (no colon) — colon is the CallbackData
+    separator in aiogram and would corrupt parsing.
+    """
+
+    action: str
+    field: str = ""
+    value: str = ""
