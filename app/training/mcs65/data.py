@@ -48,6 +48,18 @@ ENTRIES: tuple[SignalEntry, ...] = (
 
 ENTRIES_BY_CODE: dict[str, SignalEntry] = {e.code: e for e in ENTRIES}
 
+# NATO phonetic names in English — used by the inline-search matcher so users
+# can type «bravo» as easily as «браво». Stored in code (not i18n) because
+# these are an international standard, not a translation.
+NATO_PHONETIC_EN: dict[str, str] = {
+    "A": "Alpha", "B": "Bravo", "C": "Charlie", "D": "Delta", "E": "Echo",
+    "F": "Foxtrot", "G": "Golf", "H": "Hotel", "I": "India", "J": "Juliet",
+    "K": "Kilo", "L": "Lima", "M": "Mike", "N": "November", "O": "Oscar",
+    "P": "Papa", "Q": "Quebec", "R": "Romeo", "S": "Sierra", "T": "Tango",
+    "U": "Uniform", "V": "Victor", "W": "Whiskey", "X": "X-ray", "Y": "Yankee",
+    "Z": "Zulu",
+}
+
 
 def all_codes() -> list[str]:
     return [e.code for e in ENTRIES]

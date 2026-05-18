@@ -49,6 +49,17 @@ ANSWERING_ENTRY = PennantEntry("AP", PennantKind.ANSWERING, "Ответный")
 ALL_ENTRIES: tuple[PennantEntry, ...] = (*NUMERAL_ENTRIES, *SUBSTITUTE_ENTRIES, ANSWERING_ENTRY)
 ENTRIES_BY_CODE: dict[str, PennantEntry] = {e.code: e for e in ALL_ENTRIES}
 
+# English names — same purpose as NATO_PHONETIC_EN in data.py: cross-language
+# inline search. МСС-65 numeric phonetics (Nadazero/Unaone/…) + idiomatic names
+# for the substitute and answering pennants.
+PHONETIC_EN: dict[str, str] = {
+    "N0": "Nadazero", "N1": "Unaone", "N2": "Bissotwo", "N3": "Terrathree",
+    "N4": "Kartefour", "N5": "Pantafive", "N6": "Soxisix", "N7": "Setteseven",
+    "N8": "Oktoeight", "N9": "Novenine",
+    "S1": "First substitute", "S2": "Second substitute", "S3": "Third substitute",
+    "AP": "Answering pennant",
+}
+
 
 def all_codes() -> list[str]:
     return [e.code for e in ALL_ENTRIES]

@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from aiogram import BaseMiddleware
-from aiogram.types import CallbackQuery, Message, TelegramObject, User as TgUser
+from aiogram.types import CallbackQuery, InlineQuery, Message, TelegramObject, User as TgUser
 
 from app.config import settings
 from app.db.models import User
@@ -15,9 +15,7 @@ from app.repositories import users as users_repo
 
 
 def _tg_user(event: TelegramObject) -> TgUser | None:
-    if isinstance(event, Message):
-        return event.from_user
-    if isinstance(event, CallbackQuery):
+    if isinstance(event, (Message, CallbackQuery, InlineQuery)):
         return event.from_user
     return None
 

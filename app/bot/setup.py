@@ -22,5 +22,6 @@ def build_dispatcher() -> Dispatcher:
     middleware = DbAndUserMiddleware()
     dp.message.middleware(middleware)
     dp.callback_query.middleware(middleware)
+    dp.inline_query.middleware(middleware)
     dp.include_router(root_router)
     return dp

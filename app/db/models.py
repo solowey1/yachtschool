@@ -87,3 +87,22 @@ class DailyDelivery(Base):
     )
 
     __table_args__ = (UniqueConstraint("user_id", "delivered_on", name="uq_user_day"),)
+
+
+class InlineMediaCache(Base):
+    """Caches Telegram `file_id` for each flag/pennant.
+
+    Inline mode can't take a local file — Telegram needs either a public URL
+    or a `file_id` that the bot has already uploaded somewhere. We fill this
+    table once via `/preload_inline` (which sends every image to the caller's
+    DM, then stores `file_id` from the response), and reuse those file_ids
+    for `InlineQueryResultCachedPhoto` from then on.
+    """
+
+    __tablename__ = "inline_media_cache"
+
+    code: Mapped[str] = mapped_column(String(16), primary_key=True)
+    file_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
