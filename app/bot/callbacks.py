@@ -12,6 +12,7 @@ class AnswerCB(CallbackData, prefix="a"):
     entry: str  # entry_code, e.g. "A"
     chosen: str  # the code the user picked
     correct: str  # the correct code (kept here so the handler is stateless)
+    mode: str = "i"  # i = interactive (edit in place), d = daily delivery
 
 
 class NextCB(CallbackData, prefix="n"):
@@ -21,7 +22,26 @@ class NextCB(CallbackData, prefix="n"):
 
 
 class TopicCB(CallbackData, prefix="t"):
-    """User opened a topic from the main menu."""
+    """User started a training topic from the menu."""
 
     subject: str
     topic: str
+
+
+class NavCB(CallbackData, prefix="nv"):
+    """Top-level navigation between menu screens.
+
+    target values:
+        main      — main menu (3 sections)
+        training  — list of training topics
+        reference — list of reference topics
+        stats     — statistics screen
+    """
+
+    target: str
+
+
+class RefCB(CallbackData, prefix="r"):
+    """Open one reference (theory) page."""
+
+    section: str

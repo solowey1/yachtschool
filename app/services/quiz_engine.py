@@ -1,4 +1,9 @@
-"""Renders questions to Telegram messages and handles answer recording."""
+"""Renders questions to Telegram messages and handles answer recording.
+
+All quiz messages are sent as photos so that question → result → next-question
+transitions can be applied via `edit_message_media` without ever creating a
+new chat message during a quiz session.
+"""
 
 from __future__ import annotations
 
@@ -6,10 +11,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aiogram import Bot
-from aiogram.types import BufferedInputFile, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    BufferedInputFile,
+    FSInputFile,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.callbacks import AnswerCB, NextCB
+from app.bot.keyboards import (
+    daily_result_keyboard,
+    quiz_answer_keyboard,
+    quiz_next_keyboard,
+)
 from app.i18n import t
 from app.logger import get_logger
 from app.repositories import history
@@ -26,36 +40,19 @@ class SentQuestion:
     chat_id: int
 
 
-def build_answer_keyboard(question: Question) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = []
-    for opt in question.options:
-        cb = AnswerCB(
-            trainer=question.trainer_key,
-            entry=question.entry_code,
-            chosen=opt.code,
-            correct=question.correct_code,
-        )
-        rows.append([InlineKeyboardButton(text=opt.label, callback_data=cb.pack())])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+def _question_media(question: Question, caption: str) -> InputMediaPhoto:
+    if question.prompt_image_path is not None:
+        photo = FSInputFile(str(question.prompt_image_path))
+    elif question.prompt_image_bytes is not None:
+        photo = BufferedInputFile(question.prompt_image_bytes, filename="quiz.png")
+    else:
+        raise ValueError(f"question {question.trainer_key}:{question.entry_code} has no image")
+    return InputMediaPhoto(media=photo, caption=caption)
 
 
-def build_next_keyboard(topic: str, lang: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=t("common.next_question", lang),
-                    callback_data=NextCB(topic=topic).pack(),
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=t("menu.back_to_menu", lang),
-                    callback_data="menu:open",
-                )
-            ],
-        ]
-    )
+def _build_caption(question: Question, prefix: str | None) -> str:
+    parts = [p for p in (prefix, question.prompt_text) if p]
+    return "\n\n".join(parts)
 
 
 async def send_question(
@@ -64,21 +61,64 @@ async def send_question(
     question: Question,
     *,
     prefix: str | None = None,
+    mode: str = "i",
 ) -> SentQuestion:
-    """Send a question with multiple-choice keyboard. `prefix` adds context (e.g. review marker)."""
-    keyboard = build_answer_keyboard(question)
-    caption_parts = [p for p in (prefix, question.prompt_text) if p]
-    text = "\n\n".join(caption_parts)
-    photo = None
-    if question.prompt_image_path is not None:
-        photo = FSInputFile(str(question.prompt_image_path))
-    elif question.prompt_image_bytes is not None:
-        photo = BufferedInputFile(question.prompt_image_bytes, filename="quiz.png")
-    if photo is not None:
-        msg = await bot.send_photo(chat_id=chat_id, photo=photo, caption=text, reply_markup=keyboard)
-    else:
-        msg = await bot.send_message(chat_id=chat_id, text=text, reply_markup=keyboard)
+    """Send a brand-new question message. Used at quiz entry and for daily delivery."""
+    caption = _build_caption(question, prefix)
+    media = _question_media(question, caption)
+    msg = await bot.send_photo(
+        chat_id=chat_id,
+        photo=media.media,
+        caption=caption,
+        reply_markup=quiz_answer_keyboard(question, mode=mode),
+    )
     return SentQuestion(question=question, message_id=msg.message_id, chat_id=chat_id)
+
+
+async def edit_to_question(
+    bot: Bot,
+    chat_id: int,
+    message_id: int,
+    question: Question,
+    *,
+    prefix: str | None = None,
+    mode: str = "i",
+) -> None:
+    """Replace an existing photo message with a new question (same chat thread)."""
+    caption = _build_caption(question, prefix)
+    media = _question_media(question, caption)
+    await bot.edit_message_media(
+        chat_id=chat_id,
+        message_id=message_id,
+        media=media,
+        reply_markup=quiz_answer_keyboard(question, mode=mode),
+    )
+
+
+async def edit_to_result(
+    bot: Bot,
+    chat_id: int,
+    message_id: int,
+    *,
+    body: str,
+    answer_image_path: Path | None,
+    keyboard: InlineKeyboardMarkup,
+) -> None:
+    """Transition a quiz message from question into result.
+
+    When the trainer supplies an answer image, we `edit_message_media` so the
+    user sees the correct flag full-size with the verdict as caption. Otherwise
+    we keep the current photo and only update the caption.
+    """
+    if answer_image_path is not None:
+        media = InputMediaPhoto(media=FSInputFile(str(answer_image_path)), caption=body)
+        await bot.edit_message_media(
+            chat_id=chat_id, message_id=message_id, media=media, reply_markup=keyboard
+        )
+    else:
+        await bot.edit_message_caption(
+            chat_id=chat_id, message_id=message_id, caption=body, reply_markup=keyboard
+        )
 
 
 async def record_and_format_result(
@@ -91,12 +131,6 @@ async def record_and_format_result(
     correct: str,
     lang: str,
 ) -> tuple[bool, str, Path | None]:
-    """Record the answer, build the result message, and optionally an answer image.
-
-    The image (when set by the trainer) is shown beside the result text — it's
-    used by «visual grid» trainers so the user always sees which flag was the
-    correct one regardless of whether they picked it.
-    """
     is_correct = chosen == correct
     trainer = registry.get_trainer(trainer_key)
     await history.record_answer(
@@ -109,11 +143,7 @@ async def record_and_format_result(
         is_correct=is_correct,
     )
 
-    if is_correct:
-        verdict = t("quiz.correct", lang)
-    else:
-        verdict = t("quiz.incorrect", lang, answer=correct)
-
+    verdict = t("quiz.correct", lang) if is_correct else t("quiz.incorrect", lang, answer=correct)
     question = trainer.build_question(entry_code, lang)
     explanation = question.explanation or ""
     body = f"{verdict}\n\n{explanation}".strip()
@@ -122,3 +152,8 @@ async def record_and_format_result(
 
 def build_question_from_pick(trainer_key: str, entry_code: str, lang: str) -> Question:
     return registry.get_trainer(trainer_key).build_question(entry_code, lang)
+
+
+def keyboard_after_answer(mode: str, topic: str, lang: str) -> InlineKeyboardMarkup:
+    """Daily questions have no «Next» button — the next one is already in chat."""
+    return daily_result_keyboard(lang) if mode == "d" else quiz_next_keyboard(topic, lang)

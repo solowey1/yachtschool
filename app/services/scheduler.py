@@ -52,7 +52,9 @@ async def deliver_daily_for_user(
         try:
             question = build_question_from_pick(pick.trainer_key, pick.entry_code, lang)
             prefix = t("daily.review_marker", lang) if pick.is_review else None
-            await send_question(bot, telegram_id, question, prefix=prefix)
+            # mode="d" so the answer keyboard omits the «Next question» button — the
+            # next daily question is already further down in the chat.
+            await send_question(bot, telegram_id, question, prefix=prefix, mode="d")
             sent += 1
         except Exception as exc:  # noqa: BLE001
             logger.warning(

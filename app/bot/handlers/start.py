@@ -30,4 +30,4 @@ async def cmd_start(message: Message, lang: str) -> None:
 
 @router.message(Command("menu"))
 async def cmd_menu(message: Message, lang: str) -> None:
-    await message.answer(t("menu.title", lang), reply_markup=main_menu(lang))
+    await message.answer(t("menu.main_title", lang), reply_markup=main_menu(lang))

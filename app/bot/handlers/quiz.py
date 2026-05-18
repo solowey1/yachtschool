@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from aiogram import Router
-from aiogram.types import CallbackQuery, FSInputFile
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.callbacks import AnswerCB
 from app.db.models import User
-from app.services.quiz_engine import build_next_keyboard, record_and_format_result
+from app.services.quiz_engine import (
+    edit_to_result,
+    keyboard_after_answer,
+    record_and_format_result,
+)
 from app.training.registry import registry
 
 router = Router(name="quiz")
@@ -30,20 +35,22 @@ async def on_answer(
         lang=lang,
     )
 
-    # Remove the answer buttons on the original question so it can't be re-answered.
-    try:
-        await cq.message.edit_reply_markup(reply_markup=None)
-    except Exception:  # noqa: BLE001
-        pass
+    if cq.message is None:
+        await cq.answer("✅" if is_correct else "❌")
+        return
 
     topic = registry.get_trainer(callback_data.trainer).topic
-    keyboard = build_next_keyboard(topic, lang)
-    if answer_image is not None:
-        await cq.message.answer_photo(
-            FSInputFile(str(answer_image)),
-            caption=body,
-            reply_markup=keyboard,
+    keyboard = keyboard_after_answer(callback_data.mode, topic, lang)
+    try:
+        await edit_to_result(
+            cq.bot,
+            cq.message.chat.id,
+            cq.message.message_id,
+            body=body,
+            answer_image_path=answer_image,
+            keyboard=keyboard,
         )
-    else:
+    except TelegramBadRequest:
+        # Message too old to edit — fall back to a follow-up reply.
         await cq.message.answer(body, reply_markup=keyboard)
     await cq.answer("✅" if is_correct else "❌")

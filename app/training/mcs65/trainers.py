@@ -48,6 +48,10 @@ class _BaseMcs65Trainer(Trainer):
     def all_entry_codes(self) -> list[str]:
         return data.all_codes()
 
+    def build_answer_image(self, entry_code: str) -> Path | None:
+        # Always reinforce with the correct letter's flag in the result message.
+        return flag_renderer.render(entry_code)
+
 
 class FlagToLetterTrainer(_BaseMcs65Trainer):
     key = "mcs65.flag_to_letter"
@@ -130,7 +134,7 @@ class LetterToNameTrainer(_BaseMcs65Trainer):
             topic=self.topic,
             entry_code=entry_code,
             prompt_text=t("quiz.prompt.letter_to_name", lang, letter=entry_code),
-            prompt_image_path=None,
+            prompt_image_path=flag_renderer.render_text_card(entry_code),
             options=options,
             correct_code=correct,
             explanation=_explain(entry_code, lang),
@@ -153,7 +157,9 @@ class NameToLetterTrainer(_BaseMcs65Trainer):
                 lang,
                 name=t(f"mcs65.name.{entry_code}", lang),
             ),
-            prompt_image_path=None,
+            prompt_image_path=flag_renderer.render_text_card(
+                t(f"mcs65.name.{entry_code}", lang)
+            ),
             options=options,
             correct_code=correct,
             explanation=_explain(entry_code, lang),
@@ -174,7 +180,7 @@ class LetterToMorseTrainer(_BaseMcs65Trainer):
             topic=self.topic,
             entry_code=entry_code,
             prompt_text=t("quiz.prompt.letter_to_morse", lang, letter=entry_code),
-            prompt_image_path=None,
+            prompt_image_path=flag_renderer.render_text_card(entry_code),
             options=options,
             correct_code=correct,
             explanation=_explain(entry_code, lang),
@@ -195,7 +201,7 @@ class MorseToLetterTrainer(_BaseMcs65Trainer):
             prompt_text=t(
                 "quiz.prompt.morse_to_letter", lang, morse=data.get(entry_code).morse
             ),
-            prompt_image_path=None,
+            prompt_image_path=flag_renderer.render_text_card(data.get(entry_code).morse),
             options=options,
             correct_code=correct,
             explanation=_explain(entry_code, lang),
@@ -232,17 +238,14 @@ class MeaningToLetterTrainer(_BaseMcs65Trainer):
 
     def build_question(self, entry_code: str, lang: str) -> Question:
         options, correct = _build_options(entry_code, lambda c: c)
+        meaning = t(f"mcs65.meaning.{entry_code}", lang)
         return Question(
             trainer_key=self.key,
             subject=self.subject,
             topic=self.topic,
             entry_code=entry_code,
-            prompt_text=t(
-                "quiz.prompt.meaning_to_letter",
-                lang,
-                meaning=t(f"mcs65.meaning.{entry_code}", lang),
-            ),
-            prompt_image_path=None,
+            prompt_text=t("quiz.prompt.meaning_to_letter", lang, meaning=meaning),
+            prompt_image_path=flag_renderer.render_text_card(meaning),
             options=options,
             correct_code=correct,
             explanation=_explain(entry_code, lang),
@@ -276,6 +279,9 @@ class _BasePennantTrainer(Trainer):
 
     def all_entry_codes(self) -> list[str]:
         return pennants.all_codes()
+
+    def build_answer_image(self, entry_code: str) -> Path | None:
+        return pennant_renderer.render(entry_code)
 
 
 class PennantToNameTrainer(_BasePennantTrainer):
@@ -349,7 +355,7 @@ class NumeralToMorseTrainer(_BasePennantTrainer):
             topic=self.topic,
             entry_code=entry_code,
             prompt_text=t("quiz.prompt.numeral_to_morse", lang, digit=entry.short_label),
-            prompt_image_path=None,
+            prompt_image_path=flag_renderer.render_text_card(entry.short_label),
             options=options,
             correct_code=correct,
             explanation=_explain_numeral(entry_code, lang),
@@ -375,7 +381,7 @@ class MorseToNumeralTrainer(_BasePennantTrainer):
             topic=self.topic,
             entry_code=entry_code,
             prompt_text=t("quiz.prompt.morse_to_numeral", lang, morse=entry.morse),
-            prompt_image_path=None,
+            prompt_image_path=flag_renderer.render_text_card(entry.morse or "—"),
             options=options,
             correct_code=correct,
             explanation=_explain_numeral(entry_code, lang),

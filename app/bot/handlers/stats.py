@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from aiogram import F, Router
+from aiogram import Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bot.keyboards import stats_back
 from app.db.models import User
 from app.i18n import t
 from app.repositories import history
@@ -12,7 +13,7 @@ from app.repositories import history
 router = Router(name="stats")
 
 
-async def _build_stats_text(session: AsyncSession, user: User, lang: str) -> str:
+async def build_stats_text(session: AsyncSession, user: User, lang: str) -> str:
     total, correct = await history.overall_stats(session, user.id)
     if total == 0:
         return t("stats.empty", lang)
@@ -49,12 +50,5 @@ async def _build_stats_text(session: AsyncSession, user: User, lang: str) -> str
 
 @router.message(Command("stats"))
 async def cmd_stats(message: Message, session: AsyncSession, user: User, lang: str) -> None:
-    text = await _build_stats_text(session, user, lang)
-    await message.answer(text)
-
-
-@router.callback_query(F.data == "stats:open")
-async def cb_stats(cq: CallbackQuery, session: AsyncSession, user: User, lang: str) -> None:
-    text = await _build_stats_text(session, user, lang)
-    await cq.message.answer(text)
-    await cq.answer()
+    text = await build_stats_text(session, user, lang)
+    await message.answer(text, reply_markup=stats_back(lang))

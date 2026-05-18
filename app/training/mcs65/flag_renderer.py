@@ -302,26 +302,65 @@ def render(code: str) -> Path:
 
 def render_letter_card(code: str) -> Path:
     """Render a plain card showing just the letter (for letter-recognition prompts)."""
+    return render_text_card(code)
+
+
+def render_text_card(text: str) -> Path:
+    """Render a 600×400 card with `text` centered, auto-sized to fit.
+
+    Used by text-only trainers (Morse, names, meanings) so every quiz message
+    is a photo — that's what lets us `edit_media` between question and result
+    instead of sending a new message each turn.
+    """
+    import hashlib
+
     settings.flags_dir.mkdir(parents=True, exist_ok=True)
-    path = settings.flags_dir / f"letter_{code}.png"
+    key = hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+    path = settings.flags_dir / f"card_{key}.png"
     if path.exists():
         return path
+
     img = Image.new("RGB", (WIDTH, HEIGHT), WHITE)
     draw = ImageDraw.Draw(img)
     draw.rectangle([(0, 0), (WIDTH - 1, HEIGHT - 1)], outline=BLACK, width=BORDER)
+
+    bold_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    regular_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
+    length = len(text)
+    if length <= 3:
+        size, font_path = 240, bold_path
+    elif length <= 7:
+        size, font_path = 140, bold_path
+    elif length <= 16:
+        size, font_path = 80, bold_path
+    elif length <= 32:
+        size, font_path = 48, bold_path
+    elif length <= 80:
+        size, font_path = 32, regular_path
+    else:
+        size, font_path = 24, regular_path
+
     try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 280)
+        font = ImageFont.truetype(font_path, size)
     except OSError:
         font = ImageFont.load_default()
-    bbox = draw.textbbox((0, 0), code, font=font)
+
+    display = text
+    if length > 24:
+        import textwrap
+
+        # Rough char-per-line based on width / typical glyph width at this font size.
+        chars_per_line = max(14, int(WIDTH / (size * 0.55)))
+        display = textwrap.fill(text, width=chars_per_line)
+
+    bbox = draw.multiline_textbbox((0, 0), display, font=font, align="center", spacing=8)
     tw = bbox[2] - bbox[0]
     th = bbox[3] - bbox[1]
-    draw.text(
-        ((WIDTH - tw) // 2 - bbox[0], (HEIGHT - th) // 2 - bbox[1]),
-        code,
-        fill=BLACK,
-        font=font,
-    )
+    x = (WIDTH - tw) // 2 - bbox[0]
+    y = (HEIGHT - th) // 2 - bbox[1]
+    draw.multiline_text((x, y), display, fill=BLACK, font=font, align="center", spacing=8)
+
     img.save(path, format="PNG", optimize=True)
     return path
 
