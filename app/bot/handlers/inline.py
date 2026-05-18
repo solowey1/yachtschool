@@ -106,7 +106,8 @@ async def on_inline_query(
                 InlineQueryResultPhoto(
                     id=code,
                     photo_url=url,
-                    thumb_url=url,
+                    # In Bot API 7.0 the field was renamed thumb_url → thumbnail_url.
+                    thumbnail_url=url,
                     photo_width=PHOTO_WIDTH,
                     photo_height=PHOTO_HEIGHT,
                     title=title,
