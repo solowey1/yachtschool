@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Callable
+from pathlib import Path
 
 from app.i18n import t
 from app.training.base import Option, Question, Trainer
@@ -67,30 +68,52 @@ class FlagToLetterTrainer(_BaseMcs65Trainer):
         )
 
 
-class LetterToFlagTrainer(_BaseMcs65Trainer):
-    """Show a letter, list candidate codes as buttons; the user picks which letter has the right flag.
+def _build_visual_grid_options(
+    correct: str,
+    pool: list[str],
+    image_for: Callable[[str], Path],
+) -> tuple[list[Option], bytes]:
+    """Pick 3 distractors, shuffle with the correct entry, render a 2×2 numbered grid.
 
-    The flag itself can't fit on a Telegram button, so we phrase the question as
-    «Какой флаг соответствует букве X?» and list 4 letter codes; the user is
-    visualising the flags mentally. After the answer we send the correct flag image.
+    Returns (options, grid_png_bytes). Each option's `code` is the entry placed
+    in that slot; the `label` is the position number 1–4. The user picks a
+    position, the callback carries the underlying entry code, so the existing
+    correct-match logic works without changes.
     """
+    distractors = _sample_distractors(correct, pool, OPTIONS_PER_QUESTION - 1)
+    codes = [correct, *distractors]
+    random.shuffle(codes)
+    paths = [image_for(c) for c in codes]
+    grid_bytes = flag_renderer.compose_numbered_grid(paths)
+    options = [Option(code=c, label=str(i + 1)) for i, c in enumerate(codes)]
+    return options, grid_bytes
+
+
+class LetterToFlagTrainer(_BaseMcs65Trainer):
+    """Show a letter, present 4 flag images in a 2×2 grid, the user picks by number."""
 
     key = "mcs65.letter_to_flag"
     topic = "flags"
 
     def build_question(self, entry_code: str, lang: str) -> Question:
-        options, correct = _build_options(entry_code, lambda c: c)
+        options, grid = _build_visual_grid_options(
+            entry_code, data.all_codes(), flag_renderer.render
+        )
         return Question(
             trainer_key=self.key,
             subject=self.subject,
             topic=self.topic,
             entry_code=entry_code,
             prompt_text=t("quiz.prompt.letter_to_flag", lang, letter=entry_code),
-            prompt_image_path=flag_renderer.render_letter_card(entry_code),
+            prompt_image_path=None,
+            prompt_image_bytes=grid,
             options=options,
-            correct_code=correct,
+            correct_code=entry_code,
             explanation=_explain(entry_code, lang),
         )
+
+    def build_answer_image(self, entry_code: str) -> Path | None:
+        return flag_renderer.render(entry_code)
 
 
 class LetterToNameTrainer(_BaseMcs65Trainer):
@@ -278,19 +301,13 @@ class PennantToNameTrainer(_BasePennantTrainer):
 
 
 class NameToPennantTrainer(_BasePennantTrainer):
-    """Show the (long) pennant name; user picks the short label of the right pennant.
-
-    After the answer the explanation describes the pennant; we don't ship the
-    image in the prompt itself (lots of options × one image would be confusing).
-    """
+    """Show the pennant name, present a 2×2 grid of pennant images, user picks by number."""
 
     key = "mcs65.name_to_pennant"
 
     def build_question(self, entry_code: str, lang: str) -> Question:
-        options, correct = _build_options(
-            entry_code,
-            lambda c: t(f"mcs65.pennant_label.{c}", lang),
-            pool=pennants.all_codes(),
+        options, grid = _build_visual_grid_options(
+            entry_code, pennants.all_codes(), pennant_renderer.render
         )
         return Question(
             trainer_key=self.key,
@@ -303,10 +320,14 @@ class NameToPennantTrainer(_BasePennantTrainer):
                 name=t(f"mcs65.pennant_name.{entry_code}", lang),
             ),
             prompt_image_path=None,
+            prompt_image_bytes=grid,
             options=options,
-            correct_code=correct,
+            correct_code=entry_code,
             explanation=_explain_pennant(entry_code, lang),
         )
+
+    def build_answer_image(self, entry_code: str) -> Path | None:
+        return pennant_renderer.render(entry_code)
 
 
 class NumeralToMorseTrainer(_BasePennantTrainer):

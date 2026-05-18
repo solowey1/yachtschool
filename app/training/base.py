@@ -28,9 +28,11 @@ class Option:
 class Question:
     """A renderable, answerable question.
 
-    `prompt_text` is always present. `prompt_image_path` is set when the prompt
-    is visual (a flag, a chart, etc.) — in that case `prompt_text` becomes the
-    photo caption.
+    `prompt_text` is always present. Visual prompts are carried either as a
+    cached file path (`prompt_image_path`) or as in-memory PNG bytes
+    (`prompt_image_bytes`) — the latter is used for dynamically-composed
+    images such as 4-flag answer grids where caching every permutation would
+    blow up disk.
     """
 
     trainer_key: str
@@ -42,6 +44,7 @@ class Question:
     options: list[Option]
     correct_code: str
     explanation: str | None = None
+    prompt_image_bytes: bytes | None = None
 
 
 class Trainer(ABC):
@@ -61,3 +64,12 @@ class Trainer(ABC):
     @abstractmethod
     def build_question(self, entry_code: str, lang: str) -> Question:
         """Build a localised multiple-choice question for `entry_code`."""
+
+    def build_answer_image(self, entry_code: str) -> Path | None:
+        """Optional image of the correct answer, attached to the result message.
+
+        Used by «visual grid» trainers — where the prompt shows a numbered grid
+        of candidate flags and the result message reveals which one was right.
+        Default `None` means «no extra image after answering».
+        """
+        return None

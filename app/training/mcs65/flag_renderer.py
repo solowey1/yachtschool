@@ -333,3 +333,52 @@ def prerender_all() -> None:
     for code in all_codes():
         render(code)
         render_letter_card(code)
+
+
+def compose_numbered_grid(image_paths: list[Path]) -> bytes:
+    """Compose 4 images into a 2×2 numbered grid, return PNG bytes.
+
+    Used by trainers that ask the user to pick visually from several flags —
+    each cell gets a 1–4 badge so the inline keyboard can carry numeric labels.
+    Generated fresh per question (cheap with Pillow), no on-disk cache: order
+    is randomised per call so caching by permutation would be wasteful.
+    """
+    if len(image_paths) != 4:
+        raise ValueError(f"compose_numbered_grid expects 4 images, got {len(image_paths)}")
+
+    tile_w, tile_h = 360, 240
+    pad = 18
+    grid_w = 2 * tile_w + 3 * pad
+    grid_h = 2 * tile_h + 3 * pad
+    grid = Image.new("RGB", (grid_w, grid_h), (235, 235, 235))
+    draw = ImageDraw.Draw(grid)
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+    except OSError:
+        font = ImageFont.load_default()
+
+    positions = [(0, 0), (1, 0), (0, 1), (1, 1)]
+    for i, (col, row) in enumerate(positions):
+        x = pad + col * (tile_w + pad)
+        y = pad + row * (tile_h + pad)
+        tile = Image.open(image_paths[i]).convert("RGB").resize((tile_w, tile_h))
+        grid.paste(tile, (x, y))
+        badge_d = 48
+        bx, by = x + 8, y + 8
+        draw.ellipse([(bx, by), (bx + badge_d, by + badge_d)], fill=BLACK)
+        num = str(i + 1)
+        bbox = draw.textbbox((0, 0), num, font=font)
+        tw_text = bbox[2] - bbox[0]
+        th_text = bbox[3] - bbox[1]
+        draw.text(
+            (bx + (badge_d - tw_text) // 2 - bbox[0], by + (badge_d - th_text) // 2 - bbox[1]),
+            num,
+            fill=WHITE,
+            font=font,
+        )
+
+    import io
+
+    buf = io.BytesIO()
+    grid.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()

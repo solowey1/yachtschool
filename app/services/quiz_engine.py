@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from aiogram import Bot
-from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import BufferedInputFile, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.callbacks import AnswerCB, NextCB
@@ -68,13 +69,13 @@ async def send_question(
     keyboard = build_answer_keyboard(question)
     caption_parts = [p for p in (prefix, question.prompt_text) if p]
     text = "\n\n".join(caption_parts)
+    photo = None
     if question.prompt_image_path is not None:
-        msg = await bot.send_photo(
-            chat_id=chat_id,
-            photo=FSInputFile(str(question.prompt_image_path)),
-            caption=text,
-            reply_markup=keyboard,
-        )
+        photo = FSInputFile(str(question.prompt_image_path))
+    elif question.prompt_image_bytes is not None:
+        photo = BufferedInputFile(question.prompt_image_bytes, filename="quiz.png")
+    if photo is not None:
+        msg = await bot.send_photo(chat_id=chat_id, photo=photo, caption=text, reply_markup=keyboard)
     else:
         msg = await bot.send_message(chat_id=chat_id, text=text, reply_markup=keyboard)
     return SentQuestion(question=question, message_id=msg.message_id, chat_id=chat_id)
@@ -89,7 +90,13 @@ async def record_and_format_result(
     chosen: str,
     correct: str,
     lang: str,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, Path | None]:
+    """Record the answer, build the result message, and optionally an answer image.
+
+    The image (when set by the trainer) is shown beside the result text — it's
+    used by «visual grid» trainers so the user always sees which flag was the
+    correct one regardless of whether they picked it.
+    """
     is_correct = chosen == correct
     trainer = registry.get_trainer(trainer_key)
     await history.record_answer(
@@ -107,10 +114,10 @@ async def record_and_format_result(
     else:
         verdict = t("quiz.incorrect", lang, answer=correct)
 
-    # Rebuild the same question just to fetch its localised explanation cheaply.
     question = trainer.build_question(entry_code, lang)
     explanation = question.explanation or ""
-    return is_correct, f"{verdict}\n\n{explanation}".strip()
+    body = f"{verdict}\n\n{explanation}".strip()
+    return is_correct, body, trainer.build_answer_image(entry_code)
 
 
 def build_question_from_pick(trainer_key: str, entry_code: str, lang: str) -> Question:

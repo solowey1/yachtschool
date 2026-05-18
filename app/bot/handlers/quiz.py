@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from aiogram import Router
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, FSInputFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.callbacks import AnswerCB
@@ -20,7 +20,7 @@ async def on_answer(
     user: User,
     lang: str,
 ) -> None:
-    is_correct, body = await record_and_format_result(
+    is_correct, body, answer_image = await record_and_format_result(
         session,
         user_id=user.id,
         trainer_key=callback_data.trainer,
@@ -37,5 +37,13 @@ async def on_answer(
         pass
 
     topic = registry.get_trainer(callback_data.trainer).topic
-    await cq.message.answer(body, reply_markup=build_next_keyboard(topic, lang))
+    keyboard = build_next_keyboard(topic, lang)
+    if answer_image is not None:
+        await cq.message.answer_photo(
+            FSInputFile(str(answer_image)),
+            caption=body,
+            reply_markup=keyboard,
+        )
+    else:
+        await cq.message.answer(body, reply_markup=keyboard)
     await cq.answer("✅" if is_correct else "❌")
