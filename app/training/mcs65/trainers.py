@@ -6,7 +6,7 @@ import random
 from collections.abc import Callable
 from pathlib import Path
 
-from app.i18n import t
+from app.i18n import t, t_list
 from app.training.base import Option, Question, Trainer
 from app.training.mcs65 import data, flag_renderer, pennant_renderer, pennants
 from app.training.mcs65.data import SUBJECT_CODE
@@ -28,6 +28,23 @@ def _build_options(
     codes = [correct, *distractors]
     random.shuffle(codes)
     return [Option(code=c, label=label_for(c)) for c in codes], correct
+
+
+def _build_options_from_labels(
+    correct_code: str, correct_label: str, distractor_labels: list[str]
+) -> list[Option]:
+    """Options where distractor labels are arbitrary strings, not derived from codes.
+
+    Used by phonetics trainer — distractors are «sound-alike» words that don't
+    belong to any МСС letter, so they get placeholder codes that can never
+    match `correct_code`. Falls back to no distractors if the pool is empty.
+    """
+    picks = random.sample(
+        distractor_labels, k=min(OPTIONS_PER_QUESTION - 1, len(distractor_labels))
+    )
+    items = [(correct_code, correct_label)] + [(f"_{i}", label) for i, label in enumerate(picks)]
+    random.shuffle(items)
+    return [Option(code=c, label=l) for c, l in items]
 
 
 def _explain(code: str, lang: str) -> str:
@@ -121,13 +138,24 @@ class LetterToFlagTrainer(_BaseMcs65Trainer):
 
 
 class LetterToNameTrainer(_BaseMcs65Trainer):
+    """Phonetic alphabet drill — distractors are curated «sound-alike» words
+    starting with the same letter as the correct name, so the answer can't be
+    guessed from the initial Cyrillic letter alone.
+    """
+
     key = "mcs65.letter_to_name"
     topic = "names"
 
     def build_question(self, entry_code: str, lang: str) -> Question:
-        options, correct = _build_options(
-            entry_code, lambda c: t(f"mcs65.name.{c}", lang)
-        )
+        correct_name = t(f"mcs65.name.{entry_code}", lang)
+        distractor_pool = t_list(f"mcs65.name_distractors.{entry_code}", lang)
+        if len(distractor_pool) < OPTIONS_PER_QUESTION - 1:
+            # Defensive fallback to the old behaviour — only kicks in if the
+            # locale is missing distractors for some entry.
+            distractor_pool = [
+                t(f"mcs65.name.{c}", lang) for c in data.all_codes() if c != entry_code
+            ]
+        options = _build_options_from_labels(entry_code, correct_name, distractor_pool)
         return Question(
             trainer_key=self.key,
             subject=self.subject,
@@ -136,7 +164,8 @@ class LetterToNameTrainer(_BaseMcs65Trainer):
             prompt_text=t("quiz.prompt.letter_to_name", lang, letter=entry_code),
             prompt_image_path=flag_renderer.render_text_card(entry_code),
             options=options,
-            correct_code=correct,
+            correct_code=entry_code,
+            correct_label=correct_name,
             explanation=_explain(entry_code, lang),
         )
 
@@ -183,6 +212,7 @@ class LetterToMorseTrainer(_BaseMcs65Trainer):
             prompt_image_path=flag_renderer.render_text_card(entry_code),
             options=options,
             correct_code=correct,
+            correct_label=data.get(entry_code).morse,
             explanation=_explain(entry_code, lang),
         )
 
@@ -228,6 +258,7 @@ class LetterToMeaningTrainer(_BaseMcs65Trainer):
             prompt_image_path=flag_renderer.render(entry_code),
             options=options,
             correct_code=correct,
+            correct_label=_label(entry_code),
             explanation=_explain(entry_code, lang),
         )
 
@@ -302,6 +333,7 @@ class PennantToNameTrainer(_BasePennantTrainer):
             prompt_image_path=pennant_renderer.render(entry_code),
             options=options,
             correct_code=correct,
+            correct_label=t(f"mcs65.pennant_label.{entry_code}", lang),
             explanation=_explain_pennant(entry_code, lang),
         )
 
@@ -358,6 +390,7 @@ class NumeralToMorseTrainer(_BasePennantTrainer):
             prompt_image_path=flag_renderer.render_text_card(entry.short_label),
             options=options,
             correct_code=correct,
+            correct_label=entry.morse or "—",
             explanation=_explain_numeral(entry_code, lang),
         )
 

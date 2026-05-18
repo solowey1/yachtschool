@@ -1,3 +1,3 @@
-from app.i18n.translator import Translator, t
+from app.i18n.translator import Translator, t, t_list
 
-__all__ = ["Translator", "t"]
+__all__ = ["Translator", "t", "t_list"]

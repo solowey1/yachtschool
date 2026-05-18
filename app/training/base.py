@@ -45,6 +45,9 @@ class Question:
     correct_code: str
     explanation: str | None = None
     prompt_image_bytes: bytes | None = None
+    #: Human-readable form of the correct answer, used in the result verdict
+    #: («Правильный ответ: <correct_label>»). Falls back to `correct_code` when None.
+    correct_label: str | None = None
 
 
 class Trainer(ABC):

@@ -33,7 +33,7 @@ class Translator:
     def available_languages(self) -> list[str]:
         return sorted(self._data.keys())
 
-    def _resolve(self, lang: str, key: str) -> str | None:
+    def _resolve_raw(self, lang: str, key: str) -> Any:
         cursor: Any = self._data.get(lang)
         if cursor is None:
             return None
@@ -41,7 +41,11 @@ class Translator:
             if not isinstance(cursor, dict) or part not in cursor:
                 return None
             cursor = cursor[part]
-        return cursor if isinstance(cursor, str) else None
+        return cursor
+
+    def _resolve(self, lang: str, key: str) -> str | None:
+        value = self._resolve_raw(lang, key)
+        return value if isinstance(value, str) else None
 
     def t(self, key: str, lang: str | None = None, /, **kwargs: Any) -> str:
         lang = lang or self.default_lang
@@ -57,6 +61,20 @@ class Translator:
                 return value
         return value
 
+    def t_list(self, key: str, lang: str | None = None) -> list[str]:
+        """Read a list value from i18n (e.g. distractor pools).
+
+        Returns [] when missing or not a list. Falls back to the default language
+        before giving up, same as `t`.
+        """
+        lang = lang or self.default_lang
+        value = self._resolve_raw(lang, key)
+        if not isinstance(value, list) and lang != self.default_lang:
+            value = self._resolve_raw(self.default_lang, key)
+        if not isinstance(value, list):
+            return []
+        return [str(v) for v in value]
+
 
 _translator: Translator | None = None
 
@@ -70,3 +88,7 @@ def translator() -> Translator:
 
 def t(key: str, lang: str | None = None, /, **kwargs: Any) -> str:
     return translator().t(key, lang, **kwargs)
+
+
+def t_list(key: str, lang: str | None = None) -> list[str]:
+    return translator().t_list(key, lang)

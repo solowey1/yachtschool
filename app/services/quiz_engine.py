@@ -143,8 +143,13 @@ async def record_and_format_result(
         is_correct=is_correct,
     )
 
-    verdict = t("quiz.correct", lang) if is_correct else t("quiz.incorrect", lang, answer=correct)
     question = trainer.build_question(entry_code, lang)
+    correct_answer_for_verdict = question.correct_label or correct
+    verdict = (
+        t("quiz.correct", lang)
+        if is_correct
+        else t("quiz.incorrect", lang, answer=correct_answer_for_verdict)
+    )
     explanation = question.explanation or ""
     body = f"{verdict}\n\n{explanation}".strip()
     return is_correct, body, trainer.build_answer_image(entry_code)
