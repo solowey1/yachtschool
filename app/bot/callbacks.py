@@ -45,3 +45,14 @@ class RefCB(CallbackData, prefix="r"):
     """Open one reference (theory) page."""
 
     section: str
+
+
+class RefDetailCB(CallbackData, prefix="rd"):
+    """Open the detail page for a single entry inside a reference section.
+
+    `code` is the canonical entry code — 'A'..'Z' for letters, 'N0'..'N9' for
+    numeral pennants, 'S1'..'S3' for substitutes, 'AP' for the answering pennant.
+    The handler determines what to render based on the prefix.
+    """
+
+    code: str

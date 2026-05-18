@@ -5,16 +5,23 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.callbacks import NavCB, NextCB, RefCB, TopicCB
+from aiogram.types import FSInputFile
+
+from app.bot.callbacks import NavCB, NextCB, RefCB, RefDetailCB, TopicCB
 from app.bot.keyboards import (
     main_menu,
-    reference_back,
+    reference_detail_back,
     reference_menu,
+    reference_section_keyboard,
     stats_back,
     training_menu,
 )
 from app.bot.handlers.stats import build_stats_text
-from app.bot.handlers.reference import build_reference_text
+from app.bot.handlers.reference import (
+    build_detail,
+    build_reference_text,
+    detail_section_for,
+)
 from app.db.models import User
 from app.i18n import t
 from app.services.question_picker import pick_for_topic
@@ -78,7 +85,31 @@ async def open_reference_section(
     cq: CallbackQuery, callback_data: RefCB, lang: str
 ) -> None:
     text = build_reference_text(callback_data.section, lang)
-    await _swap_text(cq, text, reference_back(lang))
+    keyboard = reference_section_keyboard(callback_data.section, lang)
+    await _swap_text(cq, text, keyboard)
+    await cq.answer()
+
+
+@router.callback_query(RefDetailCB.filter())
+async def open_reference_detail(
+    cq: CallbackQuery, callback_data: RefDetailCB, lang: str
+) -> None:
+    """Drill into one entry: text section → photo detail page."""
+    image_path, caption = build_detail(callback_data.code, lang)
+    back_section = detail_section_for(callback_data.code)
+    keyboard = reference_detail_back(back_section, lang)
+
+    if cq.message is not None:
+        try:
+            await cq.message.delete()
+        except TelegramBadRequest:
+            pass
+    await cq.bot.send_photo(
+        chat_id=cq.from_user.id,
+        photo=FSInputFile(str(image_path)),
+        caption=caption,
+        reply_markup=keyboard,
+    )
     await cq.answer()
 
 
