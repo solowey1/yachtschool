@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 from app.i18n import t
 from app.training.base import Option, Question, Trainer
-from app.training.mcs65 import data, flag_renderer
+from app.training.mcs65 import data, flag_renderer, pennant_renderer, pennants
 from app.training.mcs65.data import SUBJECT_CODE
 from app.training.registry import registry
 
@@ -226,6 +226,141 @@ class MeaningToLetterTrainer(_BaseMcs65Trainer):
         )
 
 
+def _explain_pennant(code: str, lang: str) -> str:
+    return t(
+        "quiz.explanation_pennant",
+        lang,
+        label=t(f"mcs65.pennant_name.{code}", lang),
+        description=t(f"mcs65.pennant_meaning.{code}", lang),
+    )
+
+
+def _explain_numeral(code: str, lang: str) -> str:
+    entry = pennants.get(code)
+    digit = entry.short_label
+    return t(
+        "quiz.explanation_numeral",
+        lang,
+        digit=digit,
+        name=t(f"mcs65.pennant_name.{code}", lang),
+        morse=entry.morse or "—",
+    )
+
+
+class _BasePennantTrainer(Trainer):
+    subject = SUBJECT_CODE
+    topic = "pennants"
+
+    def all_entry_codes(self) -> list[str]:
+        return pennants.all_codes()
+
+
+class PennantToNameTrainer(_BasePennantTrainer):
+    key = "mcs65.pennant_to_name"
+
+    def build_question(self, entry_code: str, lang: str) -> Question:
+        options, correct = _build_options(
+            entry_code,
+            lambda c: t(f"mcs65.pennant_label.{c}", lang),
+            pool=pennants.all_codes(),
+        )
+        return Question(
+            trainer_key=self.key,
+            subject=self.subject,
+            topic=self.topic,
+            entry_code=entry_code,
+            prompt_text=t("quiz.prompt.pennant_to_name", lang),
+            prompt_image_path=pennant_renderer.render(entry_code),
+            options=options,
+            correct_code=correct,
+            explanation=_explain_pennant(entry_code, lang),
+        )
+
+
+class NameToPennantTrainer(_BasePennantTrainer):
+    """Show the (long) pennant name; user picks the short label of the right pennant.
+
+    After the answer the explanation describes the pennant; we don't ship the
+    image in the prompt itself (lots of options × one image would be confusing).
+    """
+
+    key = "mcs65.name_to_pennant"
+
+    def build_question(self, entry_code: str, lang: str) -> Question:
+        options, correct = _build_options(
+            entry_code,
+            lambda c: t(f"mcs65.pennant_label.{c}", lang),
+            pool=pennants.all_codes(),
+        )
+        return Question(
+            trainer_key=self.key,
+            subject=self.subject,
+            topic=self.topic,
+            entry_code=entry_code,
+            prompt_text=t(
+                "quiz.prompt.name_to_pennant",
+                lang,
+                name=t(f"mcs65.pennant_name.{entry_code}", lang),
+            ),
+            prompt_image_path=None,
+            options=options,
+            correct_code=correct,
+            explanation=_explain_pennant(entry_code, lang),
+        )
+
+
+class NumeralToMorseTrainer(_BasePennantTrainer):
+    key = "mcs65.numeral_to_morse"
+
+    def all_entry_codes(self) -> list[str]:
+        return pennants.numeral_codes()
+
+    def build_question(self, entry_code: str, lang: str) -> Question:
+        entry = pennants.get(entry_code)
+        options, correct = _build_options(
+            entry_code,
+            lambda c: pennants.get(c).morse or "—",
+            pool=pennants.numeral_codes(),
+        )
+        return Question(
+            trainer_key=self.key,
+            subject=self.subject,
+            topic=self.topic,
+            entry_code=entry_code,
+            prompt_text=t("quiz.prompt.numeral_to_morse", lang, digit=entry.short_label),
+            prompt_image_path=None,
+            options=options,
+            correct_code=correct,
+            explanation=_explain_numeral(entry_code, lang),
+        )
+
+
+class MorseToNumeralTrainer(_BasePennantTrainer):
+    key = "mcs65.morse_to_numeral"
+
+    def all_entry_codes(self) -> list[str]:
+        return pennants.numeral_codes()
+
+    def build_question(self, entry_code: str, lang: str) -> Question:
+        entry = pennants.get(entry_code)
+        options, correct = _build_options(
+            entry_code,
+            lambda c: pennants.get(c).short_label,
+            pool=pennants.numeral_codes(),
+        )
+        return Question(
+            trainer_key=self.key,
+            subject=self.subject,
+            topic=self.topic,
+            entry_code=entry_code,
+            prompt_text=t("quiz.prompt.morse_to_numeral", lang, morse=entry.morse),
+            prompt_image_path=None,
+            options=options,
+            correct_code=correct,
+            explanation=_explain_numeral(entry_code, lang),
+        )
+
+
 def register() -> None:
     """Register all МСС-65 topics and trainers."""
 
@@ -259,10 +394,17 @@ def register() -> None:
     )
     registry.register_topic(
         subject=SUBJECT_CODE,
+        code="pennants",
+        title_i18n_key="menu.topic.pennants",
+        intro_i18n_key="menu.topic_intro.pennants",
+        order=5,
+    )
+    registry.register_topic(
+        subject=SUBJECT_CODE,
         code="letters",
         title_i18n_key="menu.topic.letters",
         intro_i18n_key="menu.topic_intro.letters",
-        order=5,
+        order=6,
     )
 
     registry.register_trainer(FlagToLetterTrainer())
@@ -273,6 +415,10 @@ def register() -> None:
     registry.register_trainer(MorseToLetterTrainer())
     registry.register_trainer(LetterToMeaningTrainer())
     registry.register_trainer(MeaningToLetterTrainer())
+    registry.register_trainer(PennantToNameTrainer())
+    registry.register_trainer(NameToPennantTrainer())
+    registry.register_trainer(NumeralToMorseTrainer())
+    registry.register_trainer(MorseToNumeralTrainer())
 
     # The "letters" topic borrows trainers from all the others — it's a mixed-mode
     # drill rather than its own trainer family. We register references to existing
