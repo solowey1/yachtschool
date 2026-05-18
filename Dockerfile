@@ -15,20 +15,8 @@ RUN apt-get update \
         tini \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml ./
-RUN pip install --upgrade pip \
-    && pip install \
-        "aiogram==3.13.1" \
-        "SQLAlchemy[asyncio]==2.0.36" \
-        "asyncpg==0.30.0" \
-        "alembic==1.13.3" \
-        "APScheduler==3.10.4" \
-        "pytz==2024.2" \
-        "Pillow==11.0.0" \
-        "pydantic==2.10.3" \
-        "pydantic-settings==2.6.1" \
-        "python-dotenv==1.0.1" \
-        "structlog==24.4.0"
+COPY requirements.txt ./
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY alembic.ini ./
 COPY alembic ./alembic
