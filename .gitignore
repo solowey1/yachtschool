@@ -20,5 +20,4 @@ htmlcov/
 .idea/
 .vscode/
 *.log
-assets/flags/
 data/postgres/

@@ -61,7 +61,7 @@ cmd_up() {
 
 cmd_down() {
     if [ -z "${1:-}" ]; then
-        docker compose down
+        docker compose down --remove-orphans
     else
         # `docker compose down` действует только на весь стэк целиком,
         # поэтому для отдельного сервиса используем stop + remove.
@@ -72,7 +72,7 @@ cmd_down() {
 cmd_update() {
     git pull
     if [ -z "${1:-}" ]; then
-        docker compose down -v
+        docker compose down -v --remove-orphans
         docker compose build --no-cache
         docker compose up -d
     else
