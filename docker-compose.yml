@@ -24,11 +24,19 @@ services:
         condition: service_healthy
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
+      BOT_USERNAME: ${BOT_USERNAME:-имя_бота}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-yachtschool}:${POSTGRES_PASSWORD:-yachtschool}@db:5432/${POSTGRES_DB:-yachtschool}
       DAILY_DELIVERY_TIME: ${DAILY_DELIVERY_TIME:-17:00}
       DAILY_DELIVERY_TIMEZONE: ${DAILY_DELIVERY_TIMEZONE:-Europe/Moscow}
       DAILY_QUESTIONS_COUNT: ${DAILY_QUESTIONS_COUNT:-5}
       DEFAULT_LANGUAGE: ${DEFAULT_LANGUAGE:-ru}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      INLINE_PUBLIC_BASE_URL: ${INLINE_PUBLIC_BASE_URL:-}
+      WEB_PORT: 8080
+    ports:
+      # The bot exposes a small HTTP server with /flags/{name}.png — bind
+      # it to localhost only; the host's nginx is expected to proxy it
+      # under your public HTTPS domain (see README → inline-режим).
+      - "127.0.0.1:${WEB_PORT:-8080}:8080"
     volumes:
       - ./assets:/app/assets

@@ -26,11 +26,26 @@ async def _async_main() -> None:
     dp = build_dispatcher()
 
     scheduler = start_scheduler(bot)
+
+    # HTTP server starts unconditionally so its /health endpoint is always
+    # reachable; whether inline uses public URLs is decided by the inline
+    # handler based on settings.inline_public_base_url.
+    from app.config import settings as _s
+    from app.web.server import start as start_web
+
+    web_runner = await start_web()
+    if not _s.inline_public_base_url:
+        logger.info(
+            "inline.url_mode_disabled",
+            hint="set INLINE_PUBLIC_BASE_URL to skip file_id cache and avoid /preload_inline",
+        )
+
     logger.info("bot.starting")
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         scheduler.shutdown(wait=False)
+        await web_runner.cleanup()
         await bot.session.close()
         await engine.dispose()
 

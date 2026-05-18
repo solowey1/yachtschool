@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app.config import settings
+from app.config import settings  # noqa: F401  — used inside Translator methods
 
 _LOCALES_DIR = Path(__file__).parent / "locales"
 
@@ -54,12 +54,13 @@ class Translator:
             value = self._resolve(self.default_lang, key)
         if value is None:
             return key
-        if kwargs:
-            try:
-                return value.format(**kwargs)
-            except (KeyError, IndexError):
-                return value
-        return value
+        # `bot_username` is always available without explicit kwarg — saves
+        # passing it through every t() call in handlers.
+        kwargs.setdefault("bot_username", settings.bot_username)
+        try:
+            return value.format(**kwargs)
+        except (KeyError, IndexError):
+            return value
 
     def t_list(self, key: str, lang: str | None = None) -> list[str]:
         """Read a list value from i18n (e.g. distractor pools).
