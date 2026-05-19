@@ -69,7 +69,9 @@ class QuestionAnswer(Base):
     subject: Mapped[str] = mapped_column(String(32), nullable=False)
     topic: Mapped[str] = mapped_column(String(32), nullable=False)
     trainer_key: Mapped[str] = mapped_column(String(64), nullable=False)
-    entry_code: Mapped[str] = mapped_column(String(16), nullable=False)
+    # 64 chars — COLREGs scenario codes like «colregs_overtaking_ms_3» are
+    # 22 chars; allow plenty of room for future subjects.
+    entry_code: Mapped[str] = mapped_column(String(64), nullable=False)
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
     asked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

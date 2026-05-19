@@ -3,7 +3,11 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.bot.callbacks import ColregsCB, NavCB, NextCB, RefCB, RefDetailCB, SettingsCB, TopicCB
-from app.training.colregs.reference_data import CHAPTER_ORDER, CHAPTER_RULES
+from app.training.colregs.reference_data import (
+    CHAPTER_ORDER,
+    CHAPTER_RULES,
+    display_label as colregs_display_label,
+)
 from app.i18n import t, translator
 from app.training.mcs65 import data as mcs65_data
 from app.training.mcs65 import pennants as mcs65_pennants
@@ -254,14 +258,17 @@ def reference_colregs_menu(lang: str) -> InlineKeyboardMarkup:
 
 
 def reference_colregs_part(lang: str, chapter: str) -> InlineKeyboardMarkup:
-    """Buttons for individual rules inside a COLREGs chapter, 5 per row."""
+    """Buttons for individual rules inside a COLREGs chapter, 5 per row.
+
+    Annexes (a1..a4) display as Roman numerals; regular rules as «1», «14», …
+    """
     rules = CHAPTER_RULES.get(chapter, [])
     rows: list[list[InlineKeyboardButton]] = []
     for chunk in _chunk(rules, 5):
         rows.append(
             [
                 _btn(
-                    str(int(r)),  # display: 1, 2, …, 38 (no leading zero)
+                    colregs_display_label(r),
                     RefCB(subject="colregs", section=chapter, item=r).pack(),
                 )
                 for r in chunk

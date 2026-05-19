@@ -31,6 +31,9 @@ def chapter_intro(chapter: str, lang: str) -> str:
 
 
 def rule_text(rule: str, lang: str) -> str:
+    """Annex codes (a1..a4) are stored under a separate i18n branch."""
+    if rule.startswith("a"):
+        return t(f"reference.colregs.annex.{rule}", lang)
     return t(f"reference.colregs.rule.{rule}", lang)
 
 

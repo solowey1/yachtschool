@@ -16,6 +16,7 @@ CHAPTER_RULES: dict[str, list[str]] = {
     "part_c":     [f"{n:02d}" for n in range(20, 32)],   # 20..31
     "part_d":     [f"{n:02d}" for n in range(32, 38)],   # 32..37
     "part_e":     ["38"],
+    "annexes":    ["a1", "a2", "a3", "a4"],
 }
 
 CHAPTER_ORDER: tuple[str, ...] = (
@@ -27,4 +28,13 @@ CHAPTER_ORDER: tuple[str, ...] = (
     "part_c",
     "part_d",
     "part_e",
+    "annexes",
 )
+
+
+def display_label(item: str) -> str:
+    """Button label for a rule/annex code. Numeric → strip leading zero;
+    annex codes (a1..a4) → Roman numeral."""
+    if item.startswith("a"):
+        return {"a1": "I", "a2": "II", "a3": "III", "a4": "IV"}.get(item, item.upper())
+    return str(int(item)) if item.isdigit() else item

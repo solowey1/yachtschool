@@ -86,6 +86,17 @@ LIGHT_RED    = (255, 70, 70)
 LIGHT_GREEN  = (70, 255, 110)
 LIGHT_YELLOW = (255, 220, 80)
 
+# Brightness factors used to distinguish А (lighter) from Б (darker) when
+# both vessels are of the same type — otherwise they'd be indistinguishable
+# in the day-mode rendering. Applied to hull fill in day mode; applied to
+# the glow alpha in night mode (so A's lights look slightly brighter).
+A_TINT = 1.28
+B_TINT = 0.72
+
+
+def _shade(color: tuple[int, int, int], factor: float) -> tuple[int, int, int]:
+    return tuple(max(0, min(255, int(c * factor))) for c in color)  # type: ignore[return-value]
+
 # ── Font helpers ──────────────────────────────────────────────────────────────
 
 _BOLD_PATHS = (
@@ -176,42 +187,40 @@ def _draw_compass(draw: ImageDraw.ImageDraw, pal: dict) -> None:
 
 
 def _draw_wind(draw: ImageDraw.ImageDraw, pal: dict, wind_dir: int) -> None:
-    """Arrow from compass centre pointing toward the side the wind comes FROM.
+    """Short arrow from compass centre pointing toward the side wind comes FROM.
 
-    Mariner convention: wind_dir = direction wind is coming from. The head of
-    the arrow lands at that direction on the compass — the student reads
-    «ветер с такого-то направления» directly.
+    Mariner convention: wind_dir = direction wind is coming from. The head
+    lands ~100 px from centre (half the compass radius), so the arrow is
+    compact rather than crossing the whole rose. Label goes outside the head.
     """
     cy = CY - LEGEND_HEIGHT // 2
     rad = math.radians(wind_dir)
-    inner_r = 14
-    outer_r = COMPASS_R - 20
+    inner_r = 8
+    outer_r = inner_r + 90  # was ~196 px → halved
     sx = CX + math.sin(rad) * inner_r
     sy = cy - math.cos(rad) * inner_r
     ex = CX + math.sin(rad) * outer_r
     ey = cy - math.cos(rad) * outer_r
     draw.line([(sx, sy), (ex, ey)], fill=pal["wind"], width=4)
 
-    # Arrowhead at the outer end
     dx, dy = ex - sx, ey - sy
     length = max(1.0, math.hypot(dx, dy))
     ux, uy = dx / length, dy / length
-    base_x, base_y = ex - ux * 14, ey - uy * 14
-    half = 8
+    base_x, base_y = ex - ux * 12, ey - uy * 12
+    half = 7
     p1 = (base_x - uy * half, base_y + ux * half)
     p2 = (base_x + uy * half, base_y - ux * half)
     draw.polygon([(ex, ey), p1, p2], fill=pal["wind"])
 
-    # Label next to the head — perpendicular offset so it doesn't sit on the line
     label = f"ветер {_compass_label(wind_dir)} ({wind_dir}°)"
     font = _font(12, bold=True)
     bbox = draw.textbbox((0, 0), label, font=font)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    # Perpendicular vector (rotate forward 90° clockwise)
-    perp_x = math.cos(rad) * 22
-    perp_y = math.sin(rad) * 22
-    lx = ex + perp_x - tw // 2
-    ly = ey + perp_y - th // 2
+    # Place label past the arrow head along the same direction so it doesn't
+    # cross the line — and offset perpendicularly to clear the head.
+    head_pad = 18
+    lx = ex + math.sin(rad) * head_pad - tw // 2
+    ly = ey - math.cos(rad) * head_pad - th // 2
     pad = 3
     draw.rounded_rectangle(
         [(lx - pad, ly - pad), (lx + tw + pad, ly + th + pad)],
@@ -274,7 +283,11 @@ def _draw_vessel_day(
         s, c = math.sin(rad), math.cos(rad)
         return cx + px * c - py * s, cy + px * s + py * c
 
-    color = VESSEL_COLORS[vtype]
+    # Shade the hull so А and Б are distinguishable even when both vessels
+    # share a type. А lighter, Б darker; outline always uses the dark variant
+    # so the silhouette stays crisp on the sea background.
+    tint = A_TINT if letter == "А" else B_TINT
+    color = _shade(VESSEL_COLORS[vtype], tint)
     dark = VESSEL_DARK[vtype]
     draw.polygon([rot(*p) for p in local], fill=color, outline=dark)
 
@@ -293,11 +306,10 @@ def _draw_vessel_day(
                 fill=dark, width=2,
             )
 
-    # Vessel letter — sized to fit inside the hull (not overflowing it).
-    # sz = 28 → font_size ≈ 16, with a bit of slack so wide letters don't
-    # touch the polygon edges.
+    # Letter sized below the hull's narrowest point so it never overflows.
+    # sz=28 → font ≈ 13 pt (sz * 0.45).
     letter_pos = rot(0, sz * 0.05)
-    letter_font = _font(int(sz * 0.6))
+    letter_font = _font(int(sz * 0.45))
     _text_centered(draw, letter_pos, letter, letter_font, WHITE)
 
 
@@ -309,18 +321,25 @@ def _glow_dot(
     color: tuple[int, int, int],
     core: int = 4,
     halo: int = 10,
+    intensity: float = 1.0,
 ) -> None:
-    """Soft glow: a bright core surrounded by concentric translucent halos."""
+    """Soft glow: bright core surrounded by translucent halos.
+
+    `intensity` scales the halo alpha (and slightly the core) — used to give
+    А a brighter glow than Б so paired lights of the same colour at the
+    same point in the scene don't look identical.
+    """
     dr = ImageDraw.Draw(overlay, "RGBA")
+    halo_alpha_peak = int(min(255, 110 * intensity))
     for r in range(halo, core, -2):
-        # Linear falloff for alpha from 0 at halo edge to 110 at core
-        alpha = int(110 * (1 - (r - core) / max(1, halo - core)))
+        alpha = int(halo_alpha_peak * (1 - (r - core) / max(1, halo - core)))
         dr.ellipse(
             [(cx - r, cy - r), (cx + r, cy + r)],
             fill=(color[0], color[1], color[2], alpha),
         )
+    core_alpha = int(min(255, 255 * intensity)) if intensity < 1 else 255
     dr.ellipse([(cx - core, cy - core), (cx + core, cy + core)],
-               fill=(*color, 255))
+               fill=(*color, core_alpha))
 
 
 def _vessel_lights(vtype: VesselType, has_way: bool = True) -> list[tuple[str, tuple[int, int, int]]]:
@@ -397,9 +416,11 @@ def _draw_vessel_night(
     for n in (1, 2, 3):
         positions[f"all{n}"] = pos(forward=allround_step * (n - 2))
 
+    # А lights ~25% brighter than Б so a same-type pair stays distinguishable.
+    intensity = 1.0 if letter == "А" else 0.65
     for key, color in _vessel_lights(vtype):
         px, py = positions[key]
-        _glow_dot(overlay, px, py, color, core=4, halo=10)
+        _glow_dot(overlay, px, py, color, core=4, halo=10, intensity=intensity)
 
     # Letter label next to the lights cluster (offset toward starboard so it
     # doesn't sit on top of any light).
