@@ -305,6 +305,13 @@ def render_letter_card(code: str) -> Path:
     return render_text_card(code)
 
 
+# Bump whenever render_text_card() output changes — old card_v{N}_*.png on
+# bind-mounted ./assets/ are then orphaned (never re-served) and the new
+# version gets generated fresh on next access. Avoids the «I deployed a fix
+# but the cached file is still the old buggy render» trap.
+_CARD_RENDERER_VERSION = 2
+
+
 def render_text_card(text: str) -> Path:
     """Render a 600×400 card with `text` centered, auto-sized to fit.
 
@@ -321,7 +328,7 @@ def render_text_card(text: str) -> Path:
 
     settings.flags_dir.mkdir(parents=True, exist_ok=True)
     key = hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
-    path = settings.flags_dir / f"card_{key}.png"
+    path = settings.flags_dir / f"card_v{_CARD_RENDERER_VERSION}_{key}.png"
     if path.exists():
         return path
 
@@ -389,10 +396,29 @@ def render_text_card(text: str) -> Path:
     return path
 
 
+def _cleanup_stale_text_cards() -> None:
+    """Remove text cards from previous renderer versions.
+
+    Cards are content-addressed by hash + a version prefix; bumping the
+    version produces files under a fresh name. Old ones become dead weight,
+    so drop them on startup to keep the flags dir lean.
+    """
+    if not settings.flags_dir.is_dir():
+        return
+    keep_prefix = f"card_v{_CARD_RENDERER_VERSION}_"
+    for f in settings.flags_dir.glob("card_*.png"):
+        if not f.name.startswith(keep_prefix):
+            try:
+                f.unlink()
+            except OSError:
+                pass
+
+
 def prerender_all() -> None:
     """Render the full alphabet up-front so the first quiz is snappy."""
     from app.training.mcs65.data import all_codes
 
+    _cleanup_stale_text_cards()
     for code in all_codes():
         render(code)
         render_letter_card(code)
