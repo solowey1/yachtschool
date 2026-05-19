@@ -283,18 +283,26 @@ def _draw_vessel_day(
         s, c = math.sin(rad), math.cos(rad)
         return cx + px * c - py * s, cy + px * s + py * c
 
-    # Shade the hull so А and Б are distinguishable even when both vessels
-    # share a type. А lighter, Б darker; outline always uses the dark variant
-    # so the silhouette stays crisp on the sea background.
     tint = A_TINT if letter == "А" else B_TINT
     color = _shade(VESSEL_COLORS[vtype], tint)
     dark = VESSEL_DARK[vtype]
     draw.polygon([rot(*p) for p in local], fill=color, outline=dark)
 
     bow_x, bow_y = rot(0, -sz)
-    end_x = cx + math.sin(rad) * (sz + COURSE_LINE_LEN)
-    end_y = cy - math.cos(rad) * (sz + COURSE_LINE_LEN)
-    steps = 8
+    # Adaptive course-projection length: extend the dashes from the bow
+    # *through* the canvas-centre intersection point plus a small overshoot,
+    # so the paired courses always visibly cross. _place_pair_crossing in
+    # data.py guarantees both vessels' headings pass through (0.5, 0.5),
+    # but a fixed 70 px line (the old default) was too short for the
+    # ~110-px distance to centre at the standard placement radius.
+    centre_x, centre_y = _to_canvas(0.5, 0.5)
+    fwd_x, fwd_y = math.sin(rad), -math.cos(rad)
+    dist_along_heading = (centre_x - bow_x) * fwd_x + (centre_y - bow_y) * fwd_y
+    course_len = max(50.0, dist_along_heading + 22.0)
+
+    end_x = bow_x + fwd_x * course_len
+    end_y = bow_y + fwd_y * course_len
+    steps = max(6, int(course_len / 16))
     for i in range(steps):
         if i % 2 == 0:
             t0, t1 = i / steps, (i + 0.55) / steps
@@ -306,8 +314,6 @@ def _draw_vessel_day(
                 fill=dark, width=2,
             )
 
-    # Letter sized below the hull's narrowest point so it never overflows.
-    # sz=28 → font ≈ 13 pt (sz * 0.45).
     letter_pos = rot(0, sz * 0.05)
     letter_font = _font(int(sz * 0.45))
     _text_centered(draw, letter_pos, letter, letter_font, WHITE)
