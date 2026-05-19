@@ -23,23 +23,38 @@ from app.training.mcs65 import data, pennants
 router = Router(name="inline")
 
 INLINE_RESULTS_LIMIT = 50  # Telegram's hard cap per answer()
-CACHE_TIME_SECONDS = 60
-# Dimensions of every PNG we render in flag_renderer / pennant_renderer.
+# 0 = no Telegram-side caching. Inline result types change occasionally during
+# tuning, and an aggressively cached old layout sticks around for clients even
+# after a redeploy. Cheap to regenerate per query for our scale (<1ms).
+CACHE_TIME_SECONDS = 0
+# Source image dimensions (used by link-preview, which renders the full photo).
 PHOTO_WIDTH = 600
 PHOTO_HEIGHT = 400
+# Picker thumbnail — kept deliberately small so Telegram clients render the
+# inline picker as a compact Article list instead of a photo-card grid.
+# The web server resizes the source PNG to these dimensions on demand.
+THUMB_WIDTH = 192
+THUMB_HEIGHT = 128
+
+
+def _filename_for(code: str) -> str:
+    return f"{code}.png" if len(code) == 1 and code.isalpha() else f"pennant_{code}.png"
 
 
 def _photo_url(code: str) -> str | None:
-    """Return the public URL for `code`'s PNG, or None when no base URL is set.
-
-    Letters live under /flags/A.png .. /flags/Z.png; pennants under
-    /flags/pennant_N0.png, /flags/pennant_S1.png, /flags/pennant_AP.png.
-    """
+    """Full-size URL — used by LinkPreviewOptions to render a big preview in chat."""
     base = settings.inline_public_base_url
     if not base:
         return None
-    filename = f"{code}.png" if len(code) == 1 and code.isalpha() else f"pennant_{code}.png"
-    return f"{base.rstrip('/')}/flags/{filename}"
+    return f"{base.rstrip('/')}/flags/{_filename_for(code)}"
+
+
+def _thumb_url(code: str) -> str | None:
+    """Compact-thumbnail URL — used by the inline picker."""
+    base = settings.inline_public_base_url
+    if not base:
+        return None
+    return f"{base.rstrip('/')}/flags/thumb/{_filename_for(code)}"
 
 
 def _meta(code: str, lang: str) -> tuple[str, str, str]:
@@ -101,20 +116,21 @@ async def on_inline_query(
     for code in codes:
         title, description, caption = _meta(code, lang)
         url = _photo_url(code)
+        thumb = _thumb_url(code)
         if url is not None:
-            # Article style in the picker (compact list with title + description +
-            # thumbnail), but the sent message renders a large image preview via
-            # LinkPreviewOptions(url=…, prefer_large_media=True, show_above_text=True)
-            # — visually equivalent to a photo+caption message, while keeping the
-            # picker readable instead of a wall of full-size photos.
+            # Article style in the picker (compact list with small thumbnail +
+            # title + description), but the sent message renders a large image
+            # preview via LinkPreviewOptions(url=…, prefer_large_media=True,
+            # show_above_text=True). Two separate URLs so Telegram clients see
+            # «small thumb → compact list» in the picker, not a photo grid.
             results.append(
                 InlineQueryResultArticle(
                     id=code,
                     title=title,
                     description=description,
-                    thumbnail_url=url,
-                    thumbnail_width=PHOTO_WIDTH,
-                    thumbnail_height=PHOTO_HEIGHT,
+                    thumbnail_url=thumb,
+                    thumbnail_width=THUMB_WIDTH,
+                    thumbnail_height=THUMB_HEIGHT,
                     input_message_content=InputTextMessageContent(
                         message_text=caption,
                         parse_mode="HTML",
