@@ -2,7 +2,16 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from app.bot.callbacks import ColregsCB, NavCB, NextCB, RefCB, RefDetailCB, SettingsCB, TopicCB
+from app.bot.callbacks import (
+    ColregsCB,
+    DonateCB,
+    NavCB,
+    NextCB,
+    RefCB,
+    RefDetailCB,
+    SettingsCB,
+    TopicCB,
+)
 from app.training.colregs.reference_data import (
     CHAPTER_ORDER,
     CHAPTER_RULES,
@@ -50,6 +59,9 @@ def _chunk(items: list, size: int) -> list[list]:
 
 # ── Main / settings ──────────────────────────────────────────────────────────
 
+DONATE_AMOUNTS: tuple[int, ...] = (50, 100, 250, 500, 1000)
+
+
 def main_menu(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -57,6 +69,19 @@ def main_menu(lang: str) -> InlineKeyboardMarkup:
             [_btn(t("menu.section.training", lang), NavCB(target="training").pack())],
             [_btn(t("menu.section.stats", lang), NavCB(target="stats").pack())],
             [_btn(t("menu.section.settings", lang), NavCB(target="settings").pack())],
+            [_btn(t("menu.section.donate", lang), NavCB(target="donate").pack())],
+        ]
+    )
+
+
+def donate_menu(lang: str) -> InlineKeyboardMarkup:
+    amounts_row = [
+        _btn(f"{n} ⭐", DonateCB(amount=n).pack()) for n in DONATE_AMOUNTS
+    ]
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            amounts_row,
+            [_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())],
         ]
     )
 

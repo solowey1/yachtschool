@@ -73,6 +73,12 @@ class RefDetailCB(CallbackData, prefix="rd"):
     code: str
 
 
+class DonateCB(CallbackData, prefix="dn"):
+    """User picked a Stars amount to donate."""
+
+    amount: int
+
+
 class ColregsCB(CallbackData, prefix="cl"):
     """МППСС training submenu and trainer settings.
 
