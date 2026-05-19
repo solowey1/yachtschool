@@ -2,25 +2,30 @@ from __future__ import annotations
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, FSInputFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aiogram.types import FSInputFile
-
 from app.bot.callbacks import NavCB, NextCB, RefCB, RefDetailCB, TopicCB
-from app.bot.keyboards import (
-    main_menu,
-    reference_detail_back,
-    reference_menu,
-    reference_section_keyboard,
-    stats_back,
-    training_menu,
+from app.bot.handlers.reference import build_detail, build_reference_text, detail_section_for
+from app.bot.handlers.reference_colregs import (
+    CHAPTER_RULES,
+    about_text as colregs_about,
+    chapter_intro as colregs_chapter_intro,
+    rule_text as colregs_rule_text,
 )
 from app.bot.handlers.stats import build_stats_text
-from app.bot.handlers.reference import (
-    build_detail,
-    build_reference_text,
-    detail_section_for,
+from app.bot.keyboards import (
+    main_menu,
+    reference_back_to_part,
+    reference_colregs_menu,
+    reference_colregs_part,
+    reference_detail_back,
+    reference_mcs65_menu,
+    reference_section_keyboard,
+    reference_subject_picker,
+    stats_back,
+    training_subject_picker,
+    training_topics,
 )
 from app.db.models import User
 from app.i18n import t
@@ -34,8 +39,8 @@ router = Router(name="menu")
 async def _swap_text(cq: CallbackQuery, text: str, keyboard) -> None:
     """Edit the current text message, sending a new one only if edit isn't possible.
 
-    A text→text transition is always editable. Photo→text isn't — Telegram
-    can't change the message type — so we delete and resend.
+    Photo→text transitions can't be done as an edit — Telegram won't change
+    the message type — so we delete and resend.
     """
     if cq.message is None:
         return
@@ -49,29 +54,18 @@ async def _swap_text(cq: CallbackQuery, text: str, keyboard) -> None:
     try:
         await cq.message.edit_text(text, reply_markup=keyboard)
     except TelegramBadRequest:
-        # Nothing to edit (message too old) or content identical — send a fresh one.
         await cq.message.answer(text, reply_markup=keyboard)
 
 
-@router.callback_query(NavCB.filter(F.target == "main"))
+# ── Top-level navigation ─────────────────────────────────────────────────────
+
+@router.callback_query(NavCB.filter((F.target == "main") & (F.subject.is_(None))))
 async def open_main(cq: CallbackQuery, lang: str) -> None:
     await _swap_text(cq, t("menu.main_title", lang), main_menu(lang))
     await cq.answer()
 
 
-@router.callback_query(NavCB.filter(F.target == "training"))
-async def open_training(cq: CallbackQuery, lang: str) -> None:
-    await _swap_text(cq, t("menu.training_title", lang), training_menu(lang))
-    await cq.answer()
-
-
-@router.callback_query(NavCB.filter(F.target == "reference"))
-async def open_reference(cq: CallbackQuery, lang: str) -> None:
-    await _swap_text(cq, t("menu.reference_title", lang), reference_menu(lang))
-    await cq.answer()
-
-
-@router.callback_query(NavCB.filter(F.target == "stats"))
+@router.callback_query(NavCB.filter((F.target == "stats") & (F.subject.is_(None))))
 async def open_stats(
     cq: CallbackQuery, session: AsyncSession, user: User, lang: str
 ) -> None:
@@ -80,8 +74,78 @@ async def open_stats(
     await cq.answer()
 
 
-@router.callback_query(RefCB.filter())
-async def open_reference_section(
+# ── Training: two-tier (subject → topic) ─────────────────────────────────────
+
+@router.callback_query(NavCB.filter((F.target == "training") & (F.subject.is_(None))))
+async def open_training_subjects(cq: CallbackQuery, lang: str) -> None:
+    """First click on «🎯 Обучение» — pick a maritime subject."""
+    await _swap_text(
+        cq, t("menu.training_subject_title", lang), training_subject_picker(lang)
+    )
+    await cq.answer()
+
+
+@router.callback_query(
+    NavCB.filter((F.target == "training") & (F.subject == "mcs65"))
+)
+async def open_training_mcs65(cq: CallbackQuery, lang: str) -> None:
+    await _swap_text(cq, t("menu.training_mcs65_title", lang), training_topics(lang, "mcs65"))
+    await cq.answer()
+
+
+@router.callback_query(
+    NavCB.filter((F.target == "training") & (F.subject == "colregs"))
+)
+async def start_colregs_training(
+    cq: CallbackQuery, session: AsyncSession, user: User, lang: str
+) -> None:
+    """Single-topic subject: skip topic picker, launch the trainer directly."""
+    pick = await pick_for_topic(session, user.id, "colregs", "encounter")
+    if pick is None or cq.message is None:
+        await _swap_text(cq, t("quiz.no_more_questions", lang), main_menu(lang))
+        await cq.answer()
+        return
+
+    question = build_question_from_pick(pick.trainer_key, pick.entry_code, lang)
+    topic = registry.get_topic("colregs", "encounter")
+    prefix = t(topic.intro_i18n_key, lang)
+
+    try:
+        await cq.message.delete()
+    except TelegramBadRequest:
+        pass
+    await send_question(cq.bot, cq.from_user.id, question, prefix=prefix)
+    await cq.answer()
+
+
+# ── Reference: two-tier (subject → section → item) ───────────────────────────
+
+@router.callback_query(NavCB.filter((F.target == "reference") & (F.subject.is_(None))))
+async def open_reference_subjects(cq: CallbackQuery, lang: str) -> None:
+    await _swap_text(
+        cq, t("menu.reference_subject_title", lang), reference_subject_picker(lang)
+    )
+    await cq.answer()
+
+
+@router.callback_query(
+    NavCB.filter((F.target == "reference") & (F.subject == "mcs65"))
+)
+async def open_reference_mcs65(cq: CallbackQuery, lang: str) -> None:
+    await _swap_text(cq, t("menu.reference_mcs65_title", lang), reference_mcs65_menu(lang))
+    await cq.answer()
+
+
+@router.callback_query(
+    NavCB.filter((F.target == "reference") & (F.subject == "colregs"))
+)
+async def open_reference_colregs(cq: CallbackQuery, lang: str) -> None:
+    await _swap_text(cq, t("menu.reference_colregs_title", lang), reference_colregs_menu(lang))
+    await cq.answer()
+
+
+@router.callback_query(RefCB.filter(F.subject == "mcs65"))
+async def open_reference_mcs65_section(
     cq: CallbackQuery, callback_data: RefCB, lang: str
 ) -> None:
     text = build_reference_text(callback_data.section, lang)
@@ -90,11 +154,57 @@ async def open_reference_section(
     await cq.answer()
 
 
+@router.callback_query(RefCB.filter((F.subject == "colregs") & (F.item.is_(None))))
+async def open_reference_colregs_section(
+    cq: CallbackQuery, callback_data: RefCB, lang: str
+) -> None:
+    """Chapter intro page. «about» has no rules — just text + back; the rest
+    show the rule-number buttons under the intro.
+    """
+    section = callback_data.section
+    if section == "about":
+        text = colregs_about(lang)
+        keyboard = reference_back_to_part(lang, "about")  # actually returns to colregs menu — fix below
+        # Actually, "about" doesn't drill further. Back goes to colregs menu.
+        from app.bot.callbacks import NavCB as _NavCB
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=t("menu.back_to_section", lang),
+                        callback_data=_NavCB(target="reference", subject="colregs").pack(),
+                    )
+                ]
+            ]
+        )
+    elif section in CHAPTER_RULES:
+        text = colregs_chapter_intro(section, lang)
+        keyboard = reference_colregs_part(lang, section)
+    else:
+        text = t("common.error", lang)
+        keyboard = reference_colregs_menu(lang)
+    await _swap_text(cq, text, keyboard)
+    await cq.answer()
+
+
+@router.callback_query(RefCB.filter((F.subject == "colregs") & (F.item.is_not(None))))
+async def open_reference_colregs_rule(
+    cq: CallbackQuery, callback_data: RefCB, lang: str
+) -> None:
+    """Single COLREGs rule page."""
+    rule = callback_data.item or ""
+    text = colregs_rule_text(rule, lang)
+    keyboard = reference_back_to_part(lang, callback_data.section)
+    await _swap_text(cq, text, keyboard)
+    await cq.answer()
+
+
 @router.callback_query(RefDetailCB.filter())
 async def open_reference_detail(
     cq: CallbackQuery, callback_data: RefDetailCB, lang: str
 ) -> None:
-    """Drill into one entry: text section → photo detail page."""
+    """МСС-65 drill-down (letter / numeral / substitute) — text → photo detail."""
     image_path, caption = build_detail(callback_data.code, lang)
     back_section = detail_section_for(callback_data.code)
     keyboard = reference_detail_back(back_section, lang)
@@ -113,6 +223,8 @@ async def open_reference_detail(
     await cq.answer()
 
 
+# ── Topic launch (МСС-65) ────────────────────────────────────────────────────
+
 @router.callback_query(TopicCB.filter())
 async def start_topic(
     cq: CallbackQuery,
@@ -121,7 +233,6 @@ async def start_topic(
     user: User,
     lang: str,
 ) -> None:
-    """Enter a training topic — text menu becomes a photo quiz message."""
     pick = await pick_for_topic(session, user.id, callback_data.subject, callback_data.topic)
     if pick is None:
         await _swap_text(cq, t("quiz.no_more_questions", lang), main_menu(lang))
@@ -132,7 +243,6 @@ async def start_topic(
     topic = registry.get_topic(callback_data.subject, callback_data.topic)
     prefix = t(topic.intro_i18n_key, lang)
 
-    # Menu was text, quiz is a photo — type change forces delete + send.
     if cq.message is not None:
         try:
             await cq.message.delete()
@@ -160,7 +270,6 @@ async def next_question(
         await cq.answer()
         return
     if pick is None:
-        # Out of unseen questions — drop back to text menu.
         try:
             await cq.message.delete()
         except TelegramBadRequest:

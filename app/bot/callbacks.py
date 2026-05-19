@@ -31,20 +31,35 @@ class TopicCB(CallbackData, prefix="t"):
 class NavCB(CallbackData, prefix="nv"):
     """Top-level navigation between menu screens.
 
+    Two-tier: `target` picks the menu section, `subject` (optional) picks
+    the maritime subject inside it.
+
     target values:
-        main      — main menu (3 sections)
-        training  — list of training topics
-        reference — list of reference topics
+        main      — main menu (4 sections)
+        training  — without `subject`: subject picker; with `subject`:
+                    open that subject's training menu (or, for single-topic
+                    subjects, launch the trainer directly)
+        reference — same scheme as training
         stats     — statistics screen
+        settings  — settings screen
     """
 
     target: str
+    subject: str | None = None
 
 
 class RefCB(CallbackData, prefix="r"):
-    """Open one reference (theory) page."""
+    """Open a reference (theory) page.
 
+    `subject` is the maritime subject (e.g. "mcs65", "colregs");
+    `section` is a per-subject identifier (e.g. "flags" for MCS, "part_a"
+    for COLREGs); `item` drills further within a section (e.g. a specific
+    COLREGs rule under a part — left None when not applicable).
+    """
+
+    subject: str
     section: str
+    item: str | None = None
 
 
 class RefDetailCB(CallbackData, prefix="rd"):

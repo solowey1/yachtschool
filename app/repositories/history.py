@@ -97,6 +97,25 @@ async def topic_stats(
     return [(r.topic, int(r.total), int(r.correct or 0)) for r in res.all()]
 
 
+async def subject_topic_stats(
+    session: AsyncSession, user_id: int
+) -> list[tuple[str, str, int, int]]:
+    """Per-(subject, topic) breakdown — used to group the stats view by subject."""
+    res = await session.execute(
+        select(
+            QuestionAnswer.subject,
+            QuestionAnswer.topic,
+            func.count().label("total"),
+            _correct_sum.label("correct"),
+        )
+        .where(QuestionAnswer.user_id == user_id)
+        .group_by(QuestionAnswer.subject, QuestionAnswer.topic)
+    )
+    return [
+        (r.subject, r.topic, int(r.total), int(r.correct or 0)) for r in res.all()
+    ]
+
+
 async def overall_stats(session: AsyncSession, user_id: int) -> tuple[int, int]:
     """Return (total_answers, correct_answers)."""
     res = await session.execute(

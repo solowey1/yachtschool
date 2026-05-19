@@ -3,6 +3,7 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.bot.callbacks import NavCB, NextCB, RefCB, RefDetailCB, SettingsCB, TopicCB
+from app.bot.handlers.reference_colregs import CHAPTER_ORDER, CHAPTER_RULES
 from app.i18n import t, translator
 from app.training.mcs65 import data as mcs65_data
 from app.training.mcs65 import pennants as mcs65_pennants
@@ -12,8 +13,9 @@ from app.training.registry import registry
 COUNT_PRESETS: tuple[int, ...] = (1, 3, 5, 7, 10)
 HOUR_PRESETS: tuple[str, ...] = tuple(f"{h:02d}:00" for h in range(24))
 
-# All reference sections live here so we don't sprinkle the codes across handlers.
-REFERENCE_SECTIONS: tuple[str, ...] = (
+# Reference top-level layout for МСС-65 (matches what existed before subject
+# nesting was introduced).
+MCS65_REFERENCE_SECTIONS: tuple[str, ...] = (
     "about",
     "flags",
     "names",
@@ -23,10 +25,26 @@ REFERENCE_SECTIONS: tuple[str, ...] = (
     "substitutes",
 )
 
+# Subjects offered in both Training and Reference menus. Order = menu order.
+SUBJECTS: tuple[str, ...] = ("colregs", "mcs65")
+
 
 def _btn(label: str, callback: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=label, callback_data=callback)
 
+
+def _chunk(items: list, size: int) -> list[list]:
+    """Chunk into rows of `size`. If the trailing partial row has fewer than
+    half-size buttons, merge it into the previous row so layouts stay tidy
+    (no «one lonely button» last rows).
+    """
+    rows = [items[i : i + size] for i in range(0, len(items), size)]
+    if len(rows) >= 2 and len(rows[-1]) <= size // 2:
+        rows[-2].extend(rows.pop())
+    return rows
+
+
+# ── Main / settings ──────────────────────────────────────────────────────────
 
 def main_menu(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -91,7 +109,6 @@ def settings_time_picker(lang: str) -> InlineKeyboardMarkup:
             [
                 _btn(
                     HOUR_PRESETS[r * 6 + c],
-                    # CallbackData uses ":" as a separator — encode as HHMM here.
                     SettingsCB(
                         action="set", field="time", value=HOUR_PRESETS[r * 6 + c].replace(":", "")
                     ).pack(),
@@ -106,9 +123,34 @@ def settings_time_picker(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def training_menu(lang: str) -> InlineKeyboardMarkup:
+def stats_back(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())]
+        ]
+    )
+
+
+# ── Training ─────────────────────────────────────────────────────────────────
+
+def training_subject_picker(lang: str) -> InlineKeyboardMarkup:
+    """Subject picker: МППСС-72 then МСС-65, then back."""
+    rows = [
+        [
+            _btn(
+                t(f"menu.subject.{subject}", lang),
+                NavCB(target="training", subject=subject).pack(),
+            )
+        ]
+        for subject in SUBJECTS
+    ]
+    rows.append([_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def training_topics(lang: str, subject: str) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
-    for topic in registry.topics():
+    for topic in registry.topics(subject=subject):
         rows.append(
             [
                 _btn(
@@ -117,41 +159,99 @@ def training_menu(lang: str) -> InlineKeyboardMarkup:
                 )
             ]
         )
-    rows.append([_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())])
+    rows.append(
+        [_btn(t("menu.back_to_section", lang), NavCB(target="training").pack())]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def reference_menu(lang: str) -> InlineKeyboardMarkup:
+# ── Reference: subject picker + per-subject section lists ────────────────────
+
+def reference_subject_picker(lang: str) -> InlineKeyboardMarkup:
     rows = [
-        [_btn(t(f"reference.section.{code}", lang), RefCB(section=code).pack())]
-        for code in REFERENCE_SECTIONS
+        [
+            _btn(
+                t(f"menu.subject.{subject}", lang),
+                NavCB(target="reference", subject=subject).pack(),
+            )
+        ]
+        for subject in SUBJECTS
     ]
     rows.append([_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def reference_back(lang: str) -> InlineKeyboardMarkup:
+def reference_mcs65_menu(lang: str) -> InlineKeyboardMarkup:
+    rows = [
+        [_btn(t(f"reference.section.{code}", lang), RefCB(subject="mcs65", section=code).pack())]
+        for code in MCS65_REFERENCE_SECTIONS
+    ]
+    rows.append(
+        [_btn(t("menu.back_to_section", lang), NavCB(target="reference").pack())]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def reference_colregs_menu(lang: str) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            _btn(
+                t(f"reference.colregs.section.{code}", lang),
+                RefCB(subject="colregs", section=code).pack(),
+            )
+        ]
+        for code in CHAPTER_ORDER
+    ]
+    rows.append(
+        [_btn(t("menu.back_to_section", lang), NavCB(target="reference").pack())]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def reference_colregs_part(lang: str, chapter: str) -> InlineKeyboardMarkup:
+    """Buttons for individual rules inside a COLREGs chapter, 5 per row."""
+    rules = CHAPTER_RULES.get(chapter, [])
+    rows: list[list[InlineKeyboardButton]] = []
+    for chunk in _chunk(rules, 5):
+        rows.append(
+            [
+                _btn(
+                    str(int(r)),  # display: 1, 2, …, 38 (no leading zero)
+                    RefCB(subject="colregs", section=chapter, item=r).pack(),
+                )
+                for r in chunk
+            ]
+        )
+    rows.append(
+        [
+            _btn(
+                t("menu.back_to_section", lang),
+                NavCB(target="reference", subject="colregs").pack(),
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def reference_back_to_part(lang: str, chapter: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [_btn(t("menu.back_to_section", lang), NavCB(target="reference").pack())]
+            [
+                _btn(
+                    t("menu.back_to_section", lang),
+                    RefCB(subject="colregs", section=chapter).pack(),
+                )
+            ]
         ]
     )
 
 
-def _chunk(items: list, size: int) -> list[list]:
-    """Chunk into rows of `size`. If the trailing partial row has fewer than
-    half-size buttons, merge it into the previous row so layouts stay tidy
-    (no «one lonely button» last rows).
-    """
-    rows = [items[i : i + size] for i in range(0, len(items), size)]
-    if len(rows) >= 2 and len(rows[-1]) <= size // 2:
-        rows[-2].extend(rows.pop())
-    return rows
-
+# ── Reference (МСС-65 drill-down: same as before, just with subject="mcs65") ──
 
 def reference_section_keyboard(section: str, lang: str) -> InlineKeyboardMarkup:
-    """Buttons shown alongside the section's text. Flags / numerals / substitutes
-    each expose drill-down buttons; other sections only have a back button.
+    """Buttons shown alongside the МСС-65 section's text. Flags / numerals
+    / substitutes each expose drill-down buttons; other sections only have
+    a back button.
     """
     rows: list[list[InlineKeyboardButton]] = []
 
@@ -174,26 +274,32 @@ def reference_section_keyboard(section: str, lang: str) -> InlineKeyboardMarkup:
         )
         rows.append([_btn(t("mcs65.pennant_label.AP", lang), RefDetailCB(code="AP").pack())])
 
-    rows.append([_btn(t("menu.back_to_section", lang), NavCB(target="reference").pack())])
+    rows.append(
+        [
+            _btn(
+                t("menu.back_to_section", lang),
+                NavCB(target="reference", subject="mcs65").pack(),
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def reference_detail_back(section: str, lang: str) -> InlineKeyboardMarkup:
-    """Back button on a detail page — returns to the section that owns the entry."""
+    """Back button on a McCs-65 detail page — returns to the section list."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [_btn(t("menu.back_to_section", lang), RefCB(section=section).pack())]
+            [
+                _btn(
+                    t("menu.back_to_section", lang),
+                    RefCB(subject="mcs65", section=section).pack(),
+                )
+            ]
         ]
     )
 
 
-def stats_back(lang: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())]
-        ]
-    )
-
+# ── Quiz ─────────────────────────────────────────────────────────────────────
 
 def quiz_answer_keyboard(question, *, mode: str = "i") -> InlineKeyboardMarkup:
     from app.bot.callbacks import AnswerCB

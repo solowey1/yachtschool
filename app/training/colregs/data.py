@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 
@@ -435,41 +436,72 @@ def generate_scenario() -> Scenario:
     return fn()
 
 
-# Static pool used as entry_codes for the trainer.
-# The trainer generates fresh scenarios on each call; these codes are
-# placeholder keys so the DB can track (trainer_key, entry_code) pairs.
-# We use fixed string codes so stats remain meaningful across sessions.
+# Eight deterministic variants per encounter type → 80 unique scenarios.
+# The variant suffix is used as the random seed inside generate_for_code, so
+# the same entry_code always yields the same scene. That's what lets the bot
+# rebuild a question for explanation/verdict without showing the user a
+# different layout from the one they answered.
+_TYPE_NAMES: dict[str, Callable[[], Scenario]] = {
+    "head_on_motor":   lambda: _gen_head_on(VesselType.MOTOR),
+    "head_on_sail":    lambda: _gen_head_on(VesselType.SAIL),
+    "crossing_motor":  _gen_crossing_motor,
+    "sail_motor":      _gen_sail_vs_motor,
+    "overtaking_mm":   lambda: _gen_overtaking(VesselType.MOTOR, VesselType.MOTOR),
+    "overtaking_sm":   lambda: _gen_overtaking(VesselType.SAIL, VesselType.MOTOR),
+    "overtaking_ms":   lambda: _gen_overtaking(VesselType.MOTOR, VesselType.SAIL),
+    "sail_fishing":    _gen_sail_vs_fishing,
+    "motor_nuc":       _gen_motor_vs_nuc,
+    "sail_sail":       _gen_sail_vs_sail,
+}
+
+_VARIANTS_PER_TYPE = 8
+
 SCENARIO_CODES: list[str] = [
-    "colregs_head_on_motor",
-    "colregs_head_on_sail",
-    "colregs_crossing_motor",
-    "colregs_sail_motor",
-    "colregs_overtaking_mm",
-    "colregs_overtaking_sm",
-    "colregs_overtaking_ms",
-    "colregs_sail_fishing",
-    "colregs_motor_nuc",
-    "colregs_sail_sail",
+    f"colregs_{type_name}_{variant}"
+    for type_name in _TYPE_NAMES
+    for variant in range(_VARIANTS_PER_TYPE)
 ]
 
-# Maps entry_code → generator function (deterministic type, random geometry)
-_CODE_TO_GEN: dict[str, object] = {
-    "colregs_head_on_motor": lambda: _gen_head_on(VesselType.MOTOR),
-    "colregs_head_on_sail": lambda: _gen_head_on(VesselType.SAIL),
-    "colregs_crossing_motor": _gen_crossing_motor,
-    "colregs_sail_motor": _gen_sail_vs_motor,
-    "colregs_overtaking_mm": lambda: _gen_overtaking(VesselType.MOTOR, VesselType.MOTOR),
-    "colregs_overtaking_sm": lambda: _gen_overtaking(VesselType.SAIL, VesselType.MOTOR),
-    "colregs_overtaking_ms": lambda: _gen_overtaking(VesselType.MOTOR, VesselType.SAIL),
-    "colregs_sail_fishing": _gen_sail_vs_fishing,
-    "colregs_motor_nuc": _gen_motor_vs_nuc,
-    "colregs_sail_sail": _gen_sail_vs_sail,
-}
+
+def _type_of(entry_code: str) -> str:
+    """Strip the `colregs_` prefix and trailing `_<variant>` to get the encounter type."""
+    if not entry_code.startswith("colregs_"):
+        raise KeyError(f"unknown colregs entry_code: {entry_code!r}")
+    body = entry_code[len("colregs_"):]
+    # variant index is always the last underscore-separated token
+    head, _, _tail = body.rpartition("_")
+    return head if head in _TYPE_NAMES else body
 
 
 def generate_for_code(entry_code: str) -> Scenario:
-    """Generate a random scenario of the type identified by entry_code."""
-    fn = _CODE_TO_GEN.get(entry_code)
+    """Build the scenario identified by `entry_code` — same code → same scene.
+
+    Saves/restores the global random state so seeding here doesn't perturb
+    other randomness in the same process (e.g. quiz option shuffles in
+    other trainers).
+    """
+    type_name = _type_of(entry_code)
+    fn = _TYPE_NAMES.get(type_name)
     if fn is None:
         raise KeyError(f"unknown colregs entry_code: {entry_code!r}")
-    return fn()  # type: ignore[operator]
+
+    state = random.getstate()
+    random.seed(entry_code)
+    try:
+        scenario = fn()
+    finally:
+        random.setstate(state)
+    # The generators baked their own random `code` into the Scenario; replace
+    # it with the canonical entry_code so caller sees what it asked for.
+    return Scenario(
+        code=entry_code,
+        scenario_type=scenario.scenario_type,
+        vessel_a=scenario.vessel_a,
+        vessel_b=scenario.vessel_b,
+        wind_dir=scenario.wind_dir,
+        description=scenario.description,
+        question=scenario.question,
+        correct_answer=scenario.correct_answer,
+        wrong_answers=scenario.wrong_answers,
+        rule_text=scenario.rule_text,
+    )
