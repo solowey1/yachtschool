@@ -1,23 +1,16 @@
 """Renders COLREGs encounter scenarios to PNG using Pillow.
 
-Canvas is 600×600 px (square — scenes need equal horizontal/vertical space
-for the compass rose).
+Two visual modes:
+  • `day`   — daylight scene with hull silhouettes, course-projection
+    dashes, А/Б letters drawn inside each hull, compass, bottom legend.
+  • `night` — dark scene with only the vessels' navigation lights
+    visible at the correct positions for the vessel's heading and type
+    (Rules 23/25/26/27/30). No hull, no course line — the student has
+    to read off type and direction from the light arrangement alone.
 
-Layout:
-  - Compass rose in the centre (cardinal labels, subtle ring)
-  - Wind arrow + text in the top-right corner (always at the same position
-    so the eye doesn't hunt for it)
-  - Two vessels placed away from centre, each with a big letter (А / Б)
-    drawn inside the hull — self-labelling, no overlapping pins
-  - Dashed course-projection line forward from the bow
-  - Bottom legend: vessel type + heading in degrees with cardinal name
-    (this is where the student reads off course info — keeps the image
-    above clean)
-
-Coordinate system:
-  - Canvas: (0, 0) top-left, (600, 600) bottom-right
-  - Scenario data: unit square 0..1, y increases downward
-  - Compass: 0° North = up, clockwise
+In both modes a single wind arrow originates at the compass centre and
+points toward the side wind is coming from; the bottom legend strip
+shows А / Б chips with vessel type and heading.
 """
 
 from __future__ import annotations
@@ -32,20 +25,41 @@ from app.training.colregs.data import Scenario, VESSEL_LABELS, VesselType, _comp
 # ── Canvas constants ──────────────────────────────────────────────────────────
 
 W = H = 600
-CX = CY = 300          # compass centre
-COMPASS_R = 230        # compass rose radius
-VESSEL_SIZE = 28       # half-length of vessel arrow (was 18 → too small)
-COURSE_LINE_LEN = 70   # dashed course projection line length
-LEGEND_HEIGHT = 56     # bottom legend strip
+CX = CY = 300
+COMPASS_R = 230
+VESSEL_SIZE = 28
+COURSE_LINE_LEN = 70
+LEGEND_HEIGHT = 56
 
-# ── Colours ───────────────────────────────────────────────────────────────────
+# ── Palettes ─────────────────────────────────────────────────────────────────
 
-SEA = (216, 236, 250)
-COMPASS_RING = (110, 145, 195)
-COMPASS_TEXT = (50, 90, 150)
-GRID = (200, 224, 240)
-WIND_COLOR = (28, 145, 70)
-LEGEND_BG = (245, 250, 254)
+# Day palette
+DAY = {
+    "bg": (216, 236, 250),
+    "grid": (200, 224, 240),
+    "compass_ring": (110, 145, 195),
+    "compass_text": (50, 90, 150),
+    "wind": (28, 145, 70),
+    "legend_bg": (245, 250, 254),
+    "frame": (140, 165, 200),
+    "letter_a": (28, 70, 175),
+    "letter_b": (175, 50, 30),
+    "label_text": (60, 60, 60),
+}
+
+# Night palette
+NIGHT = {
+    "bg": (12, 18, 38),
+    "grid": (28, 38, 64),
+    "compass_ring": (60, 90, 140),
+    "compass_text": (140, 180, 230),
+    "wind": (90, 200, 140),
+    "legend_bg": (28, 38, 64),
+    "frame": (60, 90, 140),
+    "letter_a": (180, 210, 255),
+    "letter_b": (255, 210, 200),
+    "label_text": (210, 220, 240),
+}
 
 VESSEL_COLORS: dict[VesselType, tuple[int, int, int]] = {
     VesselType.MOTOR:   (200, 80, 40),
@@ -63,11 +77,14 @@ VESSEL_DARK: dict[VesselType, tuple[int, int, int]] = {
     VesselType.RAM:     (130, 95, 15),
 }
 
-LABEL_A_COLOR = (28, 70, 175)
-LABEL_B_COLOR = (175, 50, 30)
 WHITE = (255, 255, 255)
 BLACK = (10, 10, 10)
-DARK_GRAY = (60, 60, 60)
+
+# Navigation-light colours (per Rule 21).
+LIGHT_WHITE  = (255, 255, 240)
+LIGHT_RED    = (255, 70, 70)
+LIGHT_GREEN  = (70, 255, 110)
+LIGHT_YELLOW = (255, 220, 80)
 
 # ── Font helpers ──────────────────────────────────────────────────────────────
 
@@ -93,7 +110,6 @@ def _font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
 # ── Geometry helpers ──────────────────────────────────────────────────────────
 
 def _to_canvas(x: float, y: float) -> tuple[float, float]:
-    """Convert unit-square coordinates to canvas pixels (above the legend)."""
     margin = 50
     usable_h = H - LEGEND_HEIGHT - margin
     size = W - 2 * margin
@@ -108,26 +124,31 @@ def _text_centered(draw: ImageDraw.ImageDraw, xy: tuple[float, float], text: str
               text, fill=fill, font=font)
 
 
-# ── Sub-draw routines ─────────────────────────────────────────────────────────
+def _heading_vectors(heading_deg: int) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Return (forward, starboard) unit vectors for a vessel at this heading."""
+    rad = math.radians(heading_deg)
+    fwd = (math.sin(rad), -math.cos(rad))
+    stb = (math.cos(rad), math.sin(rad))
+    return fwd, stb
 
-def _draw_sea(draw: ImageDraw.ImageDraw) -> None:
-    draw.rectangle([(0, 0), (W, H)], fill=SEA)
-    # subtle grid every 60 px — gives a sense of scale without dominating
+
+# ── Background / compass / legend (mode-aware) ────────────────────────────────
+
+def _draw_background(draw: ImageDraw.ImageDraw, pal: dict) -> None:
+    draw.rectangle([(0, 0), (W, H)], fill=pal["bg"])
     for i in range(0, W + 1, 60):
-        draw.line([(i, 0), (i, H - LEGEND_HEIGHT)], fill=GRID, width=1)
+        draw.line([(i, 0), (i, H - LEGEND_HEIGHT)], fill=pal["grid"], width=1)
     for i in range(0, H - LEGEND_HEIGHT + 1, 60):
-        draw.line([(0, i), (W, i)], fill=GRID, width=1)
+        draw.line([(0, i), (W, i)], fill=pal["grid"], width=1)
 
 
-def _draw_compass(draw: ImageDraw.ImageDraw) -> None:
-    cy = CY - LEGEND_HEIGHT // 2  # compass shifts up to share canvas with legend
+def _draw_compass(draw: ImageDraw.ImageDraw, pal: dict) -> None:
+    cy = CY - LEGEND_HEIGHT // 2
     draw.ellipse(
         [(CX - COMPASS_R, cy - COMPASS_R), (CX + COMPASS_R, cy + COMPASS_R)],
-        outline=COMPASS_RING, width=1,
+        outline=pal["compass_ring"], width=1,
     )
-    draw.ellipse([(CX - 3, cy - 3), (CX + 3, cy + 3)], fill=COMPASS_RING)
-
-    # Tick marks every ~22° (16 directions); cardinals are longer/thicker.
+    draw.ellipse([(CX - 3, cy - 3), (CX + 3, cy + 3)], fill=pal["compass_ring"])
     for deg in range(0, 360, 22):
         rad = math.radians(deg)
         is_card = deg % 90 == 0
@@ -138,7 +159,7 @@ def _draw_compass(draw: ImageDraw.ImageDraw) -> None:
         iy = cy + cos_d * (COMPASS_R - inset)
         ox = CX + sin_d * COMPASS_R
         oy = cy + cos_d * COMPASS_R
-        draw.line([(ix, iy), (ox, oy)], fill=COMPASS_RING, width=2 if is_card else 1)
+        draw.line([(ix, iy), (ox, oy)], fill=pal["compass_ring"], width=2 if is_card else 1)
 
     main_f = _font(17)
     small_f = _font(11)
@@ -146,68 +167,102 @@ def _draw_compass(draw: ImageDraw.ImageDraw) -> None:
         rad = math.radians(deg)
         lx = CX + math.sin(rad) * (COMPASS_R + 18)
         ly = cy - math.cos(rad) * (COMPASS_R + 18)
-        _text_centered(draw, (lx, ly), label, main_f, COMPASS_TEXT)
+        _text_centered(draw, (lx, ly), label, main_f, pal["compass_text"])
     for deg, label in {45: "СВ", 135: "ЮВ", 225: "ЮЗ", 315: "СЗ"}.items():
         rad = math.radians(deg)
         lx = CX + math.sin(rad) * (COMPASS_R + 16)
         ly = cy - math.cos(rad) * (COMPASS_R + 16)
-        _text_centered(draw, (lx, ly), label, small_f, COMPASS_TEXT)
+        _text_centered(draw, (lx, ly), label, small_f, pal["compass_text"])
 
 
-def _draw_wind(draw: ImageDraw.ImageDraw, wind_dir: int) -> None:
-    """Fixed-position wind indicator in the top-left.
+def _draw_wind(draw: ImageDraw.ImageDraw, pal: dict, wind_dir: int) -> None:
+    """Arrow from compass centre pointing toward the side the wind comes FROM.
 
-    Always drawn at the same spot so the student doesn't have to hunt for
-    it. Tells direction by both the arrow and a compass-name text.
+    Mariner convention: wind_dir = direction wind is coming from. The head of
+    the arrow lands at that direction on the compass — the student reads
+    «ветер с такого-то направления» directly.
     """
-    box_w, box_h = 150, 42
-    x, y = 12, 12
-    draw.rounded_rectangle(
-        [(x, y), (x + box_w, y + box_h)],
-        radius=6, fill=WHITE, outline=WIND_COLOR, width=2,
-    )
-    # arrow inside the badge: small compass with arrow indicating wind direction
-    arrow_cx, arrow_cy = x + 22, y + box_h // 2
+    cy = CY - LEGEND_HEIGHT // 2
     rad = math.radians(wind_dir)
-    # Wind blows from wind_dir → arrow drawn pointing in OPPOSITE direction,
-    # tail at wind_dir side, head at 180° opposite.
-    tail_x = arrow_cx + math.sin(rad) * 12
-    tail_y = arrow_cy - math.cos(rad) * 12
-    head_x = arrow_cx - math.sin(rad) * 14
-    head_y = arrow_cy + math.cos(rad) * 14
-    draw.line([(tail_x, tail_y), (head_x, head_y)], fill=WIND_COLOR, width=3)
-    # arrowhead at head
-    dx, dy = head_x - tail_x, head_y - tail_y
+    inner_r = 14
+    outer_r = COMPASS_R - 20
+    sx = CX + math.sin(rad) * inner_r
+    sy = cy - math.cos(rad) * inner_r
+    ex = CX + math.sin(rad) * outer_r
+    ey = cy - math.cos(rad) * outer_r
+    draw.line([(sx, sy), (ex, ey)], fill=pal["wind"], width=4)
+
+    # Arrowhead at the outer end
+    dx, dy = ex - sx, ey - sy
     length = max(1.0, math.hypot(dx, dy))
     ux, uy = dx / length, dy / length
-    base_x, base_y = head_x - ux * 7, head_y - uy * 7
-    half = 4
+    base_x, base_y = ex - ux * 14, ey - uy * 14
+    half = 8
     p1 = (base_x - uy * half, base_y + ux * half)
     p2 = (base_x + uy * half, base_y - ux * half)
-    draw.polygon([(head_x, head_y), p1, p2], fill=WIND_COLOR)
+    draw.polygon([(ex, ey), p1, p2], fill=pal["wind"])
 
-    label_font = _font(13)
-    label = f"Ветер: {_compass_label(wind_dir)} ({wind_dir}°)"
-    draw.text((x + 44, y + 12), label, fill=WIND_COLOR, font=label_font)
+    # Label next to the head — perpendicular offset so it doesn't sit on the line
+    label = f"ветер {_compass_label(wind_dir)} ({wind_dir}°)"
+    font = _font(12, bold=True)
+    bbox = draw.textbbox((0, 0), label, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    # Perpendicular vector (rotate forward 90° clockwise)
+    perp_x = math.cos(rad) * 22
+    perp_y = math.sin(rad) * 22
+    lx = ex + perp_x - tw // 2
+    ly = ey + perp_y - th // 2
+    pad = 3
+    draw.rounded_rectangle(
+        [(lx - pad, ly - pad), (lx + tw + pad, ly + th + pad)],
+        radius=4, fill=pal["legend_bg"], outline=pal["wind"], width=1,
+    )
+    draw.text((lx, ly), label, fill=pal["wind"], font=font)
 
 
-def _draw_vessel(
+def _draw_legend(draw: ImageDraw.ImageDraw, pal: dict, scenario: Scenario) -> None:
+    top = H - LEGEND_HEIGHT
+    draw.rectangle([(0, top), (W, H)], fill=pal["legend_bg"], outline=pal["compass_ring"], width=1)
+
+    f_bold = _font(15)
+    f_reg = _font(13, bold=False)
+    type_a = VESSEL_LABELS[scenario.vessel_a.vtype]
+    type_b = VESSEL_LABELS[scenario.vessel_b.vtype]
+    hdg_a = f"курс {scenario.vessel_a.heading}° {_compass_label(scenario.vessel_a.heading)}"
+    hdg_b = f"курс {scenario.vessel_b.heading}° {_compass_label(scenario.vessel_b.heading)}"
+
+    pad = 14
+    chip_r = 13
+
+    def _chip(x: float, y: float, vtype: VesselType, letter: str) -> None:
+        draw.ellipse(
+            [(x, y - chip_r), (x + 2 * chip_r, y + chip_r)],
+            fill=VESSEL_COLORS[vtype], outline=VESSEL_DARK[vtype],
+        )
+        _text_centered(draw, (x + chip_r, y), letter, _font(15), WHITE)
+
+    _chip(pad, top + LEGEND_HEIGHT // 2, scenario.vessel_a.vtype, "А")
+    draw.text((pad + 2 * chip_r + 8, top + 8), f"А — {type_a}", fill=pal["letter_a"], font=f_bold)
+    draw.text((pad + 2 * chip_r + 8, top + 28), hdg_a, fill=pal["label_text"], font=f_reg)
+
+    bx = W // 2 + pad // 2
+    _chip(bx, top + LEGEND_HEIGHT // 2, scenario.vessel_b.vtype, "Б")
+    draw.text((bx + 2 * chip_r + 8, top + 8), f"Б — {type_b}", fill=pal["letter_b"], font=f_bold)
+    draw.text((bx + 2 * chip_r + 8, top + 28), hdg_b, fill=pal["label_text"], font=f_reg)
+
+
+# ── DAY mode vessel rendering ─────────────────────────────────────────────────
+
+def _draw_vessel_day(
     draw: ImageDraw.ImageDraw,
     cx: float, cy: float,
     heading: int,
     vtype: VesselType,
     letter: str,
-    letter_color: tuple[int, int, int],
 ) -> None:
-    """A filled arrow hull oriented along `heading`, with a big letter inside it.
-
-    Internal-letter labelling means we don't need a separate floating pin,
-    so there's no overlap between A/Б labels and the dashed course line.
-    """
     rad = math.radians(heading)
     sz = VESSEL_SIZE
 
-    # Hull polygon in local coords (bow at top, stern at bottom).
     local = [
         (0, -sz),                  # bow
         (sz * 0.55, sz * 0.55),    # stern starboard
@@ -223,7 +278,6 @@ def _draw_vessel(
     dark = VESSEL_DARK[vtype]
     draw.polygon([rot(*p) for p in local], fill=color, outline=dark)
 
-    # Dashed course-projection line from bow.
     bow_x, bow_y = rot(0, -sz)
     end_x = cx + math.sin(rad) * (sz + COURSE_LINE_LEN)
     end_y = cy - math.cos(rad) * (sz + COURSE_LINE_LEN)
@@ -239,75 +293,165 @@ def _draw_vessel(
                 fill=dark, width=2,
             )
 
-    # Vessel letter inside the hull body (slight stern offset so it's centred on the bulk).
+    # Vessel letter — sized to fit inside the hull (not overflowing it).
+    # sz = 28 → font_size ≈ 16, with a bit of slack so wide letters don't
+    # touch the polygon edges.
     letter_pos = rot(0, sz * 0.05)
-    letter_font = _font(int(sz * 1.1))
+    letter_font = _font(int(sz * 0.6))
     _text_centered(draw, letter_pos, letter, letter_font, WHITE)
 
 
-def _draw_legend(draw: ImageDraw.ImageDraw, scenario: Scenario) -> None:
-    """Bottom info strip — colour-coded by vessel."""
-    top = H - LEGEND_HEIGHT
-    draw.rectangle([(0, top), (W, H)], fill=LEGEND_BG, outline=COMPASS_RING, width=1)
+# ── NIGHT mode vessel rendering — navigation lights only ──────────────────────
 
-    f_bold = _font(15)
-    f_reg = _font(13, bold=False)
+def _glow_dot(
+    overlay: Image.Image,
+    cx: float, cy: float,
+    color: tuple[int, int, int],
+    core: int = 4,
+    halo: int = 10,
+) -> None:
+    """Soft glow: a bright core surrounded by concentric translucent halos."""
+    dr = ImageDraw.Draw(overlay, "RGBA")
+    for r in range(halo, core, -2):
+        # Linear falloff for alpha from 0 at halo edge to 110 at core
+        alpha = int(110 * (1 - (r - core) / max(1, halo - core)))
+        dr.ellipse(
+            [(cx - r, cy - r), (cx + r, cy + r)],
+            fill=(color[0], color[1], color[2], alpha),
+        )
+    dr.ellipse([(cx - core, cy - core), (cx + core, cy + core)],
+               fill=(*color, 255))
 
-    type_a = VESSEL_LABELS[scenario.vessel_a.vtype]
-    type_b = VESSEL_LABELS[scenario.vessel_b.vtype]
-    hdg_a = f"курс {scenario.vessel_a.heading}° {_compass_label(scenario.vessel_a.heading)}"
-    hdg_b = f"курс {scenario.vessel_b.heading}° {_compass_label(scenario.vessel_b.heading)}"
 
-    pad = 14
-    col_w = (W - 3 * pad) // 2
+def _vessel_lights(vtype: VesselType, has_way: bool = True) -> list[tuple[str, tuple[int, int, int]]]:
+    """Return a list of (position_key, colour) entries for one vessel's lights.
 
-    # А — left half
-    chip_r = 13
-    draw.ellipse(
-        [(pad, top + LEGEND_HEIGHT // 2 - chip_r),
-         (pad + 2 * chip_r, top + LEGEND_HEIGHT // 2 + chip_r)],
-        fill=VESSEL_COLORS[scenario.vessel_a.vtype], outline=VESSEL_DARK[scenario.vessel_a.vtype],
+    position_key values:
+      'mast'   — masthead light (forward, raised)
+      'stern'  — stern light (aft)
+      'port'   — port side light (red, left)
+      'stbd'   — starboard side light (green, right)
+      'allN'   — all-round, vertical position N (1 = lowest)
+    """
+    mast = ("mast", LIGHT_WHITE)
+    stern = ("stern", LIGHT_WHITE)
+    port = ("port", LIGHT_RED)
+    stbd = ("stbd", LIGHT_GREEN)
+
+    if vtype == VesselType.MOTOR:
+        return [mast, port, stbd, stern] if has_way else []
+    if vtype == VesselType.SAIL:
+        # Rule 25: red/green/stern, no masthead
+        return [port, stbd, stern] if has_way else []
+    if vtype == VesselType.FISHING:
+        # Rule 26: two all-round (red/white for non-trawling, simplified here)
+        out = [("all1", LIGHT_WHITE), ("all2", LIGHT_RED)]
+        if has_way:
+            out += [port, stbd, stern]
+        return out
+    if vtype == VesselType.NUC:
+        # Rule 27: two all-round red
+        out = [("all1", LIGHT_RED), ("all2", LIGHT_RED)]
+        if has_way:
+            out += [port, stbd, stern]
+        return out
+    if vtype == VesselType.RAM:
+        # Rule 27: three all-round red/white/red + masthead/side/stern if making way
+        out = [("all1", LIGHT_RED), ("all2", LIGHT_WHITE), ("all3", LIGHT_RED)]
+        if has_way:
+            out += [mast, port, stbd, stern]
+        return out
+    return []
+
+
+def _draw_vessel_night(
+    overlay: Image.Image,
+    cx: float, cy: float,
+    heading: int,
+    vtype: VesselType,
+    letter: str,
+    letter_color: tuple[int, int, int],
+) -> None:
+    fwd, stb = _heading_vectors(heading)
+
+    # Distances chosen so a typical merchant/sailing vessel's lights are
+    # clearly distinguishable at this canvas scale.
+    mast_d   = 16
+    stern_d  = 16
+    side_fwd = 4
+    side_lat = 11
+    allround_step = 9
+
+    def pos(forward: float = 0, lateral: float = 0) -> tuple[float, float]:
+        return cx + fwd[0] * forward + stb[0] * lateral, cy + fwd[1] * forward + stb[1] * lateral
+
+    positions = {
+        "mast":  pos(forward=mast_d),
+        "stern": pos(forward=-stern_d),
+        "port":  pos(forward=side_fwd, lateral=-side_lat),
+        "stbd":  pos(forward=side_fwd, lateral=side_lat),
+    }
+    # all-round lights stacked along the centerline of the canvas (vertical
+    # stack in real life — flattened to slight forward offsets here so they
+    # don't all overlap).
+    for n in (1, 2, 3):
+        positions[f"all{n}"] = pos(forward=allround_step * (n - 2))
+
+    for key, color in _vessel_lights(vtype):
+        px, py = positions[key]
+        _glow_dot(overlay, px, py, color, core=4, halo=10)
+
+    # Letter label next to the lights cluster (offset toward starboard so it
+    # doesn't sit on top of any light).
+    label_pos = pos(forward=-2, lateral=side_lat + 16)
+    overlay_draw = ImageDraw.Draw(overlay, "RGBA")
+    letter_font = _font(16)
+    bbox = overlay_draw.textbbox((0, 0), letter, font=letter_font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    lx = label_pos[0] - tw // 2
+    ly = label_pos[1] - th // 2
+    pad = 3
+    overlay_draw.rounded_rectangle(
+        [(lx - pad, ly - pad), (lx + tw + pad, ly + th + pad)],
+        radius=4, fill=(0, 0, 0, 160), outline=(*letter_color, 255), width=1,
     )
-    _text_centered(
-        draw, (pad + chip_r, top + LEGEND_HEIGHT // 2), "А", _font(15), WHITE
-    )
-    draw.text((pad + 2 * chip_r + 8, top + 8), f"А — {type_a}", fill=LABEL_A_COLOR, font=f_bold)
-    draw.text((pad + 2 * chip_r + 8, top + 28), hdg_a, fill=DARK_GRAY, font=f_reg)
-
-    # Б — right half
-    bx_chip = W // 2 + pad // 2
-    draw.ellipse(
-        [(bx_chip, top + LEGEND_HEIGHT // 2 - chip_r),
-         (bx_chip + 2 * chip_r, top + LEGEND_HEIGHT // 2 + chip_r)],
-        fill=VESSEL_COLORS[scenario.vessel_b.vtype], outline=VESSEL_DARK[scenario.vessel_b.vtype],
-    )
-    _text_centered(
-        draw, (bx_chip + chip_r, top + LEGEND_HEIGHT // 2), "Б", _font(15), WHITE
-    )
-    draw.text((bx_chip + 2 * chip_r + 8, top + 8), f"Б — {type_b}", fill=LABEL_B_COLOR, font=f_bold)
-    draw.text((bx_chip + 2 * chip_r + 8, top + 28), hdg_b, fill=DARK_GRAY, font=f_reg)
+    overlay_draw.text((lx, ly), letter, fill=(*letter_color, 255), font=letter_font)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def render_scenario(scenario: Scenario) -> bytes:
-    """Render a scenario image and return PNG bytes."""
-    img = Image.new("RGB", (W, H), SEA)
+def render_scenario(scenario: Scenario, *, mode: str = "day") -> bytes:
+    """Render a scenario to PNG bytes. `mode` is 'day' or 'night'."""
+    pal = NIGHT if mode == "night" else DAY
+
+    img = Image.new("RGB", (W, H), pal["bg"])
     draw = ImageDraw.Draw(img)
 
-    _draw_sea(draw)
-    _draw_compass(draw)
+    _draw_background(draw, pal)
+    _draw_compass(draw, pal)
 
     ax, ay = _to_canvas(scenario.vessel_a.x, scenario.vessel_a.y)
     bx, by = _to_canvas(scenario.vessel_b.x, scenario.vessel_b.y)
-    _draw_vessel(draw, ax, ay, scenario.vessel_a.heading, scenario.vessel_a.vtype, "А", LABEL_A_COLOR)
-    _draw_vessel(draw, bx, by, scenario.vessel_b.heading, scenario.vessel_b.vtype, "Б", LABEL_B_COLOR)
 
-    _draw_wind(draw, scenario.wind_dir)
-    _draw_legend(draw, scenario)
+    if mode == "night":
+        # Lights need alpha for soft glow — composited onto the base image.
+        overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        _draw_vessel_night(overlay, ax, ay, scenario.vessel_a.heading,
+                           scenario.vessel_a.vtype, "А", pal["letter_a"])
+        _draw_vessel_night(overlay, bx, by, scenario.vessel_b.heading,
+                           scenario.vessel_b.vtype, "Б", pal["letter_b"])
+        img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+        draw = ImageDraw.Draw(img)
+    else:
+        _draw_vessel_day(draw, ax, ay, scenario.vessel_a.heading,
+                         scenario.vessel_a.vtype, "А")
+        _draw_vessel_day(draw, bx, by, scenario.vessel_b.heading,
+                         scenario.vessel_b.vtype, "Б")
 
-    # Outer frame
-    draw.rectangle([(0, 0), (W - 1, H - 1)], outline=(140, 165, 200), width=2)
+    _draw_wind(draw, pal, scenario.wind_dir)
+    _draw_legend(draw, pal, scenario)
+
+    draw.rectangle([(0, 0), (W - 1, H - 1)], outline=pal["frame"], width=2)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)

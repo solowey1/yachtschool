@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from app.bot.callbacks import NavCB, NextCB, RefCB, RefDetailCB, SettingsCB, TopicCB
-from app.bot.handlers.reference_colregs import CHAPTER_ORDER, CHAPTER_RULES
+from app.bot.callbacks import ColregsCB, NavCB, NextCB, RefCB, RefDetailCB, SettingsCB, TopicCB
+from app.training.colregs.reference_data import CHAPTER_ORDER, CHAPTER_RULES
 from app.i18n import t, translator
 from app.training.mcs65 import data as mcs65_data
 from app.training.mcs65 import pennants as mcs65_pennants
@@ -145,6 +145,51 @@ def training_subject_picker(lang: str) -> InlineKeyboardMarkup:
         for subject in SUBJECTS
     ]
     rows.append([_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def colregs_submenu(lang: str) -> InlineKeyboardMarkup:
+    """Single-trainer subject — instead of a topic list, give the user a
+    start / settings split. Keeps trainer config a click away from the
+    «launch» button.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn(t("colregs.btn_start", lang), ColregsCB(action="start").pack())],
+            [_btn(t("colregs.btn_settings", lang), ColregsCB(action="settings").pack())],
+            [_btn(t("menu.back_to_section", lang), NavCB(target="training").pack())],
+        ]
+    )
+
+
+VESSEL_TYPE_CODES: tuple[str, ...] = ("sail", "motor", "fishing", "nuc", "ram")
+
+
+def colregs_settings(lang: str, *, night_mode: bool, enabled_types: set[str]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+
+    night_label = t(
+        "colregs.mode_row",
+        lang,
+        value=t("colregs.mode_night" if night_mode else "colregs.mode_day", lang),
+    )
+    rows.append(
+        [_btn(night_label, ColregsCB(action="toggle_night").pack())]
+    )
+
+    for code in VESSEL_TYPE_CODES:
+        is_on = code in enabled_types
+        label = t(
+            "colregs.type_row",
+            lang,
+            mark="✅" if is_on else "⬜",
+            name=t(f"colregs.vessel_type.{code}", lang),
+        )
+        rows.append(
+            [_btn(label, ColregsCB(action="toggle_type", value=code).pack())]
+        )
+
+    rows.append([_btn(t("menu.back_to_section", lang), ColregsCB(action="menu").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

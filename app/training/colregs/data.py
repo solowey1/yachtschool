@@ -462,6 +462,27 @@ SCENARIO_CODES: list[str] = [
     for variant in range(_VARIANTS_PER_TYPE)
 ]
 
+# Which vessel types appear in each encounter type. The picker filters
+# scenarios so that disabling «парусные» in user settings drops every
+# scenario where either vessel is sail.
+_TYPES_INVOLVED: dict[str, frozenset[VesselType]] = {
+    "head_on_motor":   frozenset({VesselType.MOTOR}),
+    "head_on_sail":    frozenset({VesselType.SAIL}),
+    "crossing_motor":  frozenset({VesselType.MOTOR}),
+    "sail_motor":      frozenset({VesselType.SAIL, VesselType.MOTOR}),
+    "overtaking_mm":   frozenset({VesselType.MOTOR}),
+    "overtaking_sm":   frozenset({VesselType.SAIL, VesselType.MOTOR}),
+    "overtaking_ms":   frozenset({VesselType.SAIL, VesselType.MOTOR}),
+    "sail_fishing":    frozenset({VesselType.SAIL, VesselType.FISHING}),
+    "motor_nuc":       frozenset({VesselType.MOTOR, VesselType.NUC}),
+    "sail_sail":       frozenset({VesselType.SAIL}),
+}
+
+
+def involved_types(entry_code: str) -> frozenset[VesselType]:
+    """Vessel types that appear in the scenario identified by `entry_code`."""
+    return _TYPES_INVOLVED.get(_type_of(entry_code), frozenset())
+
 
 def _type_of(entry_code: str) -> str:
     """Strip the `colregs_` prefix and trailing `_<variant>` to get the encounter type."""

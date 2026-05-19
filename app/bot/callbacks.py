@@ -73,6 +73,22 @@ class RefDetailCB(CallbackData, prefix="rd"):
     code: str
 
 
+class ColregsCB(CallbackData, prefix="cl"):
+    """МППСС training submenu and trainer settings.
+
+    actions:
+      menu          — show submenu (start / settings / back)
+      start         — launch a scenario respecting current user prefs
+      settings      — open the per-trainer settings page
+      toggle_night  — flip night-mode flag, rerender settings page
+      toggle_type   — toggle one vessel type on/off; `value` carries the
+                      type code (sail / motor / fishing / nuc / ram)
+    """
+
+    action: str
+    value: str | None = None
+
+
 class SettingsCB(CallbackData, prefix="st"):
     """Settings navigation and mutation.
 

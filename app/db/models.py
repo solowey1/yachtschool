@@ -32,6 +32,17 @@ class User(Base):
     delivery_time_utc: Mapped[str | None] = mapped_column(String(5), nullable=True)
     #: Per-user override for daily question count. NULL = use env default.
     daily_questions_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: When True, the COLREGs trainer renders night-mode scenes (lights only).
+    colregs_night_mode: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
+    #: Comma-separated list of vessel-type codes the COLREGs picker will pull
+    #: scenarios from. Empty = use default (all types). Codes match the
+    #: `VesselType` enum values: sail / motor / fishing / nuc / ram.
+    colregs_enabled_types: Mapped[str] = mapped_column(
+        String(64), default="sail,motor,fishing,nuc,ram", nullable=False,
+        server_default="sail,motor,fishing,nuc,ram",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

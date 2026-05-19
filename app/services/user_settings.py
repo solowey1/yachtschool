@@ -66,3 +66,47 @@ def is_time_overridden(user: User) -> bool:
 
 def is_count_overridden(user: User) -> bool:
     return user.daily_questions_count is not None
+
+
+# ── COLREGs-specific settings ────────────────────────────────────────────────
+
+_COLREGS_ALL_TYPES: tuple[str, ...] = ("sail", "motor", "fishing", "nuc", "ram")
+
+
+def colregs_enabled_types(user: User) -> set[str]:
+    """Parse the stored CSV into a set; empty/invalid defaults to all types."""
+    raw = (user.colregs_enabled_types or "").strip()
+    if not raw:
+        return set(_COLREGS_ALL_TYPES)
+    picked = {t.strip() for t in raw.split(",") if t.strip()}
+    valid = picked & set(_COLREGS_ALL_TYPES)
+    return valid or set(_COLREGS_ALL_TYPES)
+
+
+def colregs_all_types() -> tuple[str, ...]:
+    return _COLREGS_ALL_TYPES
+
+
+def colregs_set_enabled_types(user: User, types: set[str]) -> None:
+    """Persist; refuses to leave the user with zero types (would be unrunnable)."""
+    safe = (types & set(_COLREGS_ALL_TYPES)) or set(_COLREGS_ALL_TYPES)
+    # Stable order — keep the canonical ordering in DB for readability.
+    user.colregs_enabled_types = ",".join(t for t in _COLREGS_ALL_TYPES if t in safe)
+
+
+def colregs_toggle_type(user: User, vessel_type: str) -> None:
+    """Flip a vessel type on/off. Refuses to disable the last enabled one."""
+    cur = colregs_enabled_types(user)
+    if vessel_type in cur and len(cur) > 1:
+        cur.discard(vessel_type)
+    else:
+        cur.add(vessel_type)
+    colregs_set_enabled_types(user, cur)
+
+
+def colregs_night_mode(user: User) -> bool:
+    return bool(user.colregs_night_mode)
+
+
+def colregs_set_night_mode(user: User, value: bool) -> None:
+    user.colregs_night_mode = value

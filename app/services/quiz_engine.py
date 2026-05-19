@@ -155,8 +155,23 @@ async def record_and_format_result(
     return is_correct, body, trainer.build_answer_image(entry_code)
 
 
-def build_question_from_pick(trainer_key: str, entry_code: str, lang: str) -> Question:
-    return registry.get_trainer(trainer_key).build_question(entry_code, lang)
+def build_question_from_pick(
+    trainer_key: str, entry_code: str, lang: str, **opts
+) -> Question:
+    """Construct a question from a (trainer, entry) pick.
+
+    `**opts` are trainer-specific extras (e.g. `night_mode=True` for the
+    COLREGs trainer). Only opts the trainer's `build_question` actually
+    accepts get forwarded — other trainers see a plain
+    (entry_code, lang) call.
+    """
+    import inspect
+
+    trainer = registry.get_trainer(trainer_key)
+    params = inspect.signature(trainer.build_question).parameters
+    has_var_kw = any(p.kind == p.VAR_KEYWORD for p in params.values())
+    accepted = opts if has_var_kw else {k: v for k, v in opts.items() if k in params}
+    return trainer.build_question(entry_code, lang, **accepted)
 
 
 def keyboard_after_answer(mode: str, topic: str, lang: str) -> InlineKeyboardMarkup:

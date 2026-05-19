@@ -47,9 +47,22 @@ def _all_combinations() -> list[tuple[str, str]]:
 
 
 async def pick_for_topic(
-    session: AsyncSession, user_id: int, subject: str, topic_code: str
+    session: AsyncSession,
+    user_id: int,
+    subject: str,
+    topic_code: str,
+    *,
+    filter_fn=None,
 ) -> PickedQuestion | None:
+    """Pick one (trainer, entry) combo for this topic, preferring unseen ones.
+
+    `filter_fn(trainer_key, entry_code) -> bool` narrows the pool — used by
+    COLREGs to honour the user's vessel-type filter. When the filter excludes
+    everything the caller gets None (handler should show «no questions»).
+    """
     combos = _all_combinations_for_topic(subject, topic_code)
+    if filter_fn is not None:
+        combos = [c for c in combos if filter_fn(*c)]
     if not combos:
         return None
     asked = await history.asked_combinations(session, user_id)

@@ -37,9 +37,11 @@ class ColregsTrainer(Trainer):
     def all_entry_codes(self) -> list[str]:
         return list(SCENARIO_CODES)
 
-    def build_question(self, entry_code: str, lang: str) -> Question:
+    def build_question(
+        self, entry_code: str, lang: str, *, night_mode: bool = False
+    ) -> Question:
         scenario = generate_for_code(entry_code)
-        png_bytes = render_scenario(scenario)
+        png_bytes = render_scenario(scenario, mode="night" if night_mode else "day")
 
         # 1 correct + up to 3 distractors, shuffled deterministically per code.
         labelled = [(scenario.correct_answer, True)] + [
