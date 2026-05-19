@@ -18,6 +18,7 @@ async def record_answer(
     trainer_key: str,
     entry_code: str,
     is_correct: bool,
+    is_skipped: bool = False,
 ) -> None:
     session.add(
         QuestionAnswer(
@@ -27,6 +28,7 @@ async def record_answer(
             trainer_key=trainer_key,
             entry_code=entry_code,
             is_correct=is_correct,
+            is_skipped=is_skipped,
         )
     )
     await session.flush()
@@ -79,6 +81,7 @@ async def latest_wrong_answers(
 
 
 _correct_sum = func.sum(case((QuestionAnswer.is_correct, 1), else_=0))
+_skipped_sum = func.sum(case((QuestionAnswer.is_skipped, 1), else_=0))
 
 
 async def topic_stats(
@@ -99,20 +102,22 @@ async def topic_stats(
 
 async def subject_topic_stats(
     session: AsyncSession, user_id: int
-) -> list[tuple[str, str, int, int]]:
-    """Per-(subject, topic) breakdown — used to group the stats view by subject."""
+) -> list[tuple[str, str, int, int, int]]:
+    """Per-(subject, topic) breakdown: (subject, topic, total, correct, skipped)."""
     res = await session.execute(
         select(
             QuestionAnswer.subject,
             QuestionAnswer.topic,
             func.count().label("total"),
             _correct_sum.label("correct"),
+            _skipped_sum.label("skipped"),
         )
         .where(QuestionAnswer.user_id == user_id)
         .group_by(QuestionAnswer.subject, QuestionAnswer.topic)
     )
     return [
-        (r.subject, r.topic, int(r.total), int(r.correct or 0)) for r in res.all()
+        (r.subject, r.topic, int(r.total), int(r.correct or 0), int(r.skipped or 0))
+        for r in res.all()
     ]
 
 

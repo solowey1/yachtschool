@@ -20,6 +20,8 @@ from aiogram.types import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.keyboards import (
+    POSITION_LETTERS,
+    SKIP_CODE,
     daily_result_keyboard,
     quiz_answer_keyboard,
     quiz_next_keyboard,
@@ -52,7 +54,16 @@ def _question_media(question: Question, caption: str) -> InputMediaPhoto:
 
 def _build_caption(question: Question, prefix: str | None) -> str:
     parts = [p for p in (prefix, question.prompt_text) if p]
-    return "\n\n".join(parts)
+    text = "\n\n".join(parts)
+    # Append a labelled options list unless the trainer renders the labels
+    # onto its prompt image directly (grid trainers).
+    if question.options_in_caption and question.options:
+        lines = [
+            f"<b>{POSITION_LETTERS[i]}.</b> {opt.label}"
+            for i, opt in enumerate(question.options[: len(POSITION_LETTERS)])
+        ]
+        text = f"{text}\n\n" + "\n".join(lines)
+    return text
 
 
 async def send_question(
@@ -70,7 +81,7 @@ async def send_question(
         chat_id=chat_id,
         photo=media.media,
         caption=caption,
-        reply_markup=quiz_answer_keyboard(question, mode=mode),
+        reply_markup=quiz_answer_keyboard(question, mode=mode, lang="ru"),
     )
     return SentQuestion(question=question, message_id=msg.message_id, chat_id=chat_id)
 
@@ -91,7 +102,7 @@ async def edit_to_question(
         chat_id=chat_id,
         message_id=message_id,
         media=media,
-        reply_markup=quiz_answer_keyboard(question, mode=mode),
+        reply_markup=quiz_answer_keyboard(question, mode=mode, lang="ru"),
     )
 
 
@@ -130,8 +141,11 @@ async def record_and_format_result(
     chosen: str,
     correct: str,
     lang: str,
-) -> tuple[bool, str, Path | None]:
-    is_correct = chosen == correct
+) -> tuple[str, str, Path | None]:
+    """Returns (outcome, body, answer_image_path). `outcome` ∈ {correct, wrong, skipped}."""
+    is_skipped = chosen == SKIP_CODE
+    is_correct = (not is_skipped) and chosen == correct
+
     trainer = registry.get_trainer(trainer_key)
     await history.record_answer(
         session,
@@ -141,18 +155,21 @@ async def record_and_format_result(
         trainer_key=trainer_key,
         entry_code=entry_code,
         is_correct=is_correct,
+        is_skipped=is_skipped,
     )
 
     question = trainer.build_question(entry_code, lang)
     correct_answer_for_verdict = question.correct_label or correct
-    verdict = (
-        t("quiz.correct", lang)
-        if is_correct
-        else t("quiz.incorrect", lang, answer=correct_answer_for_verdict)
-    )
+    if is_correct:
+        verdict = t("quiz.correct", lang)
+    elif is_skipped:
+        verdict = t("quiz.skipped", lang, answer=correct_answer_for_verdict)
+    else:
+        verdict = t("quiz.incorrect", lang, answer=correct_answer_for_verdict)
     explanation = question.explanation or ""
     body = f"{verdict}\n\n{explanation}".strip()
-    return is_correct, body, trainer.build_answer_image(entry_code)
+    outcome = "correct" if is_correct else ("skipped" if is_skipped else "wrong")
+    return outcome, body, trainer.build_answer_image(entry_code)
 
 
 def build_question_from_pick(

@@ -57,6 +57,11 @@ def main() -> None:
     colregs_trainers.register()
     flag_renderer.prerender_all()
     pennant_renderer.prerender_all()
+    # Flatten any RGBA flag PNGs onto a checker pattern so Telegram never
+    # has to guess the background for transparent areas.
+    rewritten = flag_renderer.flatten_assets_transparency()
+    if rewritten:
+        get_logger("main").info("flags.flattened", count=rewritten)
     # Alembic spins up its own async engine internally — run it before our event loop starts.
     _run_migrations()
     asyncio.run(_async_main())

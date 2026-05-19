@@ -73,6 +73,12 @@ class QuestionAnswer(Base):
     # 22 chars; allow plenty of room for future subjects.
     entry_code: Mapped[str] = mapped_column(String(64), nullable=False)
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    #: True when the user pressed «Показать ответ» — counted separately in
+    #: stats, but still has `is_correct=False` so existing «review wrong
+    #: answers» logic in the daily picker scoops up skipped questions too.
+    is_skipped: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
     asked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -100,6 +106,46 @@ class DailyDelivery(Base):
     )
 
     __table_args__ = (UniqueConstraint("user_id", "delivered_on", name="uq_user_day"),)
+
+
+class DailyQuestion(Base):
+    """One row per question planned for a user's daily batch.
+
+    The full N-question batch is enqueued at delivery time; the bot then
+    sends questions one at a time, waiting for an answer before releasing
+    the next. Lets the chat stay clean instead of a wall of unanswered
+    photos at 17:00.
+
+    sent_at / answered_at semantics:
+      both NULL          — pending, not yet sent
+      sent_at set        — currently in flight, awaiting user's tap
+      both set           — done; user already answered (or pressed Show
+                           Answer, which counts as skipped)
+    """
+
+    __tablename__ = "daily_questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    delivered_on: Mapped[str] = mapped_column(String(10), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    trainer_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    entry_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_review: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "delivered_on", "position", name="uq_dq_user_day_position"
+        ),
+        Index("ix_dq_user_inflight", "user_id", "sent_at", "answered_at"),
+    )
 
 
 class InlineMediaCache(Base):

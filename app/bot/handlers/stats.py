@@ -19,11 +19,24 @@ def _percent(correct: int, total: int) -> int:
     return round(correct * 100 / total) if total else 0
 
 
-def _subject_block(subject: str, lang: str, topics: list[tuple[str, int, int]]) -> str:
-    """One subject's stats block — header + per-topic lines."""
-    total = sum(n for _, n, _ in topics)
-    correct = sum(c for _, _, c in topics)
-    head = _subject_header(subject, lang, total, correct)
+def _subject_header(subject: str, lang: str, total: int, correct: int, skipped: int) -> str:
+    return t(
+        "stats.subject_header",
+        lang,
+        subject=t(f"menu.subject.{subject}", lang),
+        total=total,
+        correct=correct,
+        skipped=skipped,
+        percent=_percent(correct, total),
+    )
+
+
+def _subject_block(subject: str, lang: str, topics: list[tuple[str, int, int, int]]) -> str:
+    """One subject's stats block. Each tuple = (topic, total, correct, skipped)."""
+    total = sum(n for _, n, _, _ in topics)
+    correct = sum(c for _, _, c, _ in topics)
+    skipped = sum(s for _, _, _, s in topics)
+    head = _subject_header(subject, lang, total, correct, skipped)
     if not topics:
         return head
     rows = "\n".join(
@@ -35,20 +48,9 @@ def _subject_block(subject: str, lang: str, topics: list[tuple[str, int, int]]) 
             total=ttotal,
             percent=_percent(tcorrect, ttotal),
         )
-        for tcode, ttotal, tcorrect in sorted(topics)
+        for tcode, ttotal, tcorrect, _tskipped in sorted(topics)
     )
     return f"{head}\n{rows}"
-
-
-def _subject_header(subject: str, lang: str, total: int, correct: int) -> str:
-    return t(
-        "stats.subject_header",
-        lang,
-        subject=t(f"menu.subject.{subject}", lang),
-        total=total,
-        correct=correct,
-        percent=_percent(correct, total),
-    )
 
 
 async def build_stats_text(session: AsyncSession, user: User, lang: str) -> str:
@@ -56,30 +58,30 @@ async def build_stats_text(session: AsyncSession, user: User, lang: str) -> str:
     if not rows:
         return t("stats.empty", lang)
 
-    # Group by subject, preserving the canonical SUBJECTS ordering for display.
-    grouped: dict[str, list[tuple[str, int, int]]] = defaultdict(list)
-    for subject, topic, ttotal, tcorrect in rows:
-        grouped[subject].append((topic, ttotal, tcorrect))
+    grouped: dict[str, list[tuple[str, int, int, int]]] = defaultdict(list)
+    for subject, topic, ttotal, tcorrect, tskipped in rows:
+        grouped[subject].append((topic, ttotal, tcorrect, tskipped))
 
     blocks: list[str] = []
     for subject in SUBJECTS:
         if subject in grouped:
             blocks.append(_subject_block(subject, lang, grouped[subject]))
-    # Any unknown subjects (e.g. new subject added before SUBJECTS update) — append last
     for subject in grouped:
         if subject not in SUBJECTS:
             blocks.append(_subject_block(subject, lang, grouped[subject]))
 
-    overall_total = sum(n for _, _, n, _ in rows)
-    overall_correct = sum(c for _, _, _, c in rows)
-    wrong_pairs = await history.latest_wrong_answers(session, user.id)
+    overall_total = sum(n for _, _, n, _, _ in rows)
+    overall_correct = sum(c for _, _, _, c, _ in rows)
+    overall_skipped = sum(s for _, _, _, _, s in rows)
+    overall_wrong = overall_total - overall_correct - overall_skipped
     overall = t(
         "stats.overall",
         lang,
         total=overall_total,
         correct=overall_correct,
+        wrong=overall_wrong,
+        skipped=overall_skipped,
         percent=_percent(overall_correct, overall_total),
-        wrong=len(wrong_pairs),
     )
 
     return t("stats.title", lang) + "\n\n" + overall + "\n\n" + "\n\n".join(blocks)

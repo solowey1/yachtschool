@@ -353,11 +353,35 @@ def reference_detail_back(section: str, lang: str) -> InlineKeyboardMarkup:
 
 # ── Quiz ─────────────────────────────────────────────────────────────────────
 
-def quiz_answer_keyboard(question, *, mode: str = "i") -> InlineKeyboardMarkup:
+POSITION_LETTERS: tuple[str, ...] = ("A", "B", "C", "D")
+#: Magic value for AnswerCB.chosen indicating the user pressed «Показать ответ».
+#: Doesn't collide with any real entry code (those are letters / Nx / Sx / AP /
+#: _dN distractors / opt_N for COLREGs).
+SKIP_CODE = "_skip"
+
+
+def quiz_answer_keyboard(question, *, mode: str = "i", lang: str = "ru") -> InlineKeyboardMarkup:
+    """Two rows: «🤷 Показать ответ» on top, then A/B/C/D answer buttons.
+
+    Option labels live in the message caption (or, for grid trainers, on
+    the rendered image itself) — buttons stay compact regardless of how
+    long the answer texts are.
+    """
     from app.bot.callbacks import AnswerCB
 
-    rows: list[list[InlineKeyboardButton]] = []
-    for opt in question.options:
+    skip_cb = AnswerCB(
+        trainer=question.trainer_key,
+        entry=question.entry_code,
+        chosen=SKIP_CODE,
+        correct=question.correct_code,
+        mode=mode,
+    )
+    rows: list[list[InlineKeyboardButton]] = [
+        [_btn(t("quiz.show_answer", lang), skip_cb.pack())]
+    ]
+
+    answer_row: list[InlineKeyboardButton] = []
+    for i, opt in enumerate(question.options[: len(POSITION_LETTERS)]):
         cb = AnswerCB(
             trainer=question.trainer_key,
             entry=question.entry_code,
@@ -365,7 +389,8 @@ def quiz_answer_keyboard(question, *, mode: str = "i") -> InlineKeyboardMarkup:
             correct=question.correct_code,
             mode=mode,
         )
-        rows.append([_btn(opt.label, cb.pack())])
+        answer_row.append(_btn(POSITION_LETTERS[i], cb.pack()))
+    rows.append(answer_row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

@@ -164,6 +164,8 @@
     },
     "correct": "✅ Правильно!",
     "incorrect": "❌ Неверно. Правильный ответ: {answer}",
+    "skipped": "⏭ Пропущено. Правильный ответ: {answer}",
+    "show_answer": "🤷 Показать ответ",
     "explanation": "ℹ️ {letter} ({name}) — Морзе: {morse}\n{meaning}",
     "explanation_pennant": "ℹ️ {label}\n{description}",
     "explanation_numeral": "ℹ️ Цифра {digit} ({name}) — Морзе: {morse}",
@@ -171,15 +173,15 @@
     "session_expired": "Сессия устарела. Откройте /menu и начните заново."
   },
   "daily": {
-    "header": "🌅 Ваша ежедневная порция из 5 вопросов МСС-65.\nОтвечайте по очереди — это закрепит знания.",
+    "header": "🌅 Ваша ежедневная порция из {count} вопросов.\nОтвечайте по очереди — следующий придёт после ответа на предыдущий.",
     "review_marker": "🔁 Вопрос на повторение",
     "footer": "Хороших ветров! ⛵"
   },
   "stats": {
     "title": "📊 <b>Ваша статистика</b>",
     "empty": "Пока нет ответов. Откройте /menu и начните тренировку.",
-    "overall": "<b>Итого:</b> {correct}/{total} ({percent}%)\nНа повторение: {wrong}",
-    "subject_header": "<b>{subject}</b> — {correct}/{total} ({percent}%)",
+    "overall": "<b>Итого:</b> ✅ {correct} / ❌ {wrong} / ⏭ {skipped}  ({percent}%)",
+    "subject_header": "<b>{subject}</b> — {correct}/{total} ({percent}%) • ⏭ {skipped}",
     "by_topic_row": "• {topic}: {correct}/{total} ({percent}%)"
   },
   "options": {
