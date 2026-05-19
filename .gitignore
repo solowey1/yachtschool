@@ -21,3 +21,7 @@ htmlcov/
 .vscode/
 *.log
 data/postgres/
+# runtime-generated assets — flags themselves are tracked, but resized thumbs
+# and text cards are produced on demand and not worth committing
+assets/flags/_thumb_*.png
+assets/flags/card_*.png
