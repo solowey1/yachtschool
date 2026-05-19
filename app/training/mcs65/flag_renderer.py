@@ -24,10 +24,38 @@ RED = (206, 17, 38)
 BLUE = (0, 56, 168)
 YELLOW = (255, 205, 0)
 
+# Checkerboard fill for «transparent» regions outside swallowtail/pennant
+# shapes. Mimics the see-through pattern used by image editors so the user
+# instantly recognises «this is not part of the flag» rather than mistaking
+# the empty area for, say, a red or white field.
+CHECKER_LIGHT = (224, 224, 224)
+CHECKER_DARK = (192, 192, 192)
+CHECKER_SIZE = 12
+
+
+def _draw_checkerboard(draw: ImageDraw.ImageDraw, x0: int, y0: int, x1: int, y1: int) -> None:
+    """Fill the (x0,y0)-(x1,y1) rectangle with a light/dark grey checker."""
+    for j, y in enumerate(range(y0, y1, CHECKER_SIZE)):
+        for i, x in enumerate(range(x0, x1, CHECKER_SIZE)):
+            color = CHECKER_LIGHT if (i + j) % 2 == 0 else CHECKER_DARK
+            draw.rectangle(
+                [(x, y), (min(x + CHECKER_SIZE, x1), min(y + CHECKER_SIZE, y1))],
+                fill=color,
+            )
+
 
 def _new() -> tuple[Image.Image, ImageDraw.ImageDraw]:
-    img = Image.new("RGB", (WIDTH, HEIGHT), WHITE)
-    return img, ImageDraw.Draw(img)
+    """Blank canvas with a checkerboard «transparent» background.
+
+    Rectangular flags (C-Z aside from A) paint the whole canvas with their
+    own pattern, hiding the checkerboard entirely. Swallowtail (A) and the
+    pennant (B) leave parts of it visible — the cut-out notch and the area
+    past the triangle — making the shape obvious.
+    """
+    img = Image.new("RGB", (WIDTH, HEIGHT), CHECKER_LIGHT)
+    draw = ImageDraw.Draw(img)
+    _draw_checkerboard(draw, 0, 0, WIDTH, HEIGHT)
+    return img, draw
 
 
 def _frame(draw: ImageDraw.ImageDraw) -> None:

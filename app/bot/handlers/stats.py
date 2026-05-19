@@ -11,12 +11,24 @@ from app.bot.keyboards import SUBJECTS, stats_back
 from app.db.models import User
 from app.i18n import t
 from app.repositories import history
+from app.training.registry import registry
 
 router = Router(name="stats")
 
 
 def _percent(correct: int, total: int) -> int:
     return round(correct * 100 / total) if total else 0
+
+
+def _topic_label(subject: str, topic_code: str, lang: str) -> str:
+    """Resolve the localised topic name via the registry so subjects that use
+    namespaced i18n keys (e.g. «menu.topic.colregs_encounter») don't fall
+    back to the raw code in the stats screen.
+    """
+    try:
+        return t(registry.get_topic(subject, topic_code).title_i18n_key, lang)
+    except KeyError:
+        return topic_code
 
 
 def _subject_header(subject: str, lang: str, total: int, correct: int, skipped: int) -> str:
@@ -43,7 +55,7 @@ def _subject_block(subject: str, lang: str, topics: list[tuple[str, int, int, in
         t(
             "stats.by_topic_row",
             lang,
-            topic=t(f"menu.topic.{tcode}", lang),
+            topic=_topic_label(subject, tcode, lang),
             correct=tcorrect,
             total=ttotal,
             percent=_percent(tcorrect, ttotal),
