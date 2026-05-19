@@ -308,11 +308,16 @@ def render_letter_card(code: str) -> Path:
 def render_text_card(text: str) -> Path:
     """Render a 600×400 card with `text` centered, auto-sized to fit.
 
+    Iteratively shrinks the font and re-wraps until the rendered text fits
+    inside an inner padded box — guarantees no clipping at the edges for any
+    realistic question prompt (single Morse character or full signal meaning).
+
     Used by text-only trainers (Morse, names, meanings) so every quiz message
     is a photo — that's what lets us `edit_media` between question and result
     instead of sending a new message each turn.
     """
     import hashlib
+    import textwrap
 
     settings.flags_dir.mkdir(parents=True, exist_ok=True)
     key = hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
@@ -324,42 +329,61 @@ def render_text_card(text: str) -> Path:
     draw = ImageDraw.Draw(img)
     draw.rectangle([(0, 0), (WIDTH - 1, HEIGHT - 1)], outline=BLACK, width=BORDER)
 
+    # Safe inner box — everything must fit here.
+    pad = 36
+    inner_w = WIDTH - 2 * pad
+    inner_h = HEIGHT - 2 * pad
+
     bold_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
     regular_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-
     length = len(text)
+    # Bold for short labels (single letter / morse / short word) — easier to
+    # spot. Regular for longer free text — more comfortable to read wrapped.
+    font_path = bold_path if length <= 16 else regular_path
+
+    # Length-driven starting size; iterative shrink below handles overruns.
     if length <= 3:
-        size, font_path = 240, bold_path
+        size = 220
     elif length <= 7:
-        size, font_path = 140, bold_path
+        size = 140
     elif length <= 16:
-        size, font_path = 80, bold_path
+        size = 80
     elif length <= 32:
-        size, font_path = 48, bold_path
-    elif length <= 80:
-        size, font_path = 32, regular_path
+        size = 50
     else:
-        size, font_path = 24, regular_path
+        size = 36
+    min_size = 14
 
-    try:
-        font = ImageFont.truetype(font_path, size)
-    except OSError:
-        font = ImageFont.load_default()
+    def _try(size: int) -> tuple[ImageFont.FreeTypeFont, str, int, int]:
+        try:
+            font = ImageFont.truetype(font_path, size)
+        except OSError:
+            font = ImageFont.load_default()
+        # Real font metric — width of a representative Cyrillic sample.
+        sample = "Мабвгдеёжзи"
+        avg_char_w = max(1.0, font.getlength(sample) / len(sample))
+        chars_per_line = max(6, int(inner_w / avg_char_w))
+        wrapped = (
+            textwrap.fill(text, width=chars_per_line, break_long_words=False)
+            if length > chars_per_line
+            else text
+        )
+        bbox = draw.multiline_textbbox((0, 0), wrapped, font=font, align="center", spacing=size // 10)
+        return font, wrapped, bbox[2] - bbox[0], bbox[3] - bbox[1]
 
-    display = text
-    if length > 24:
-        import textwrap
+    font, wrapped, tw, th = _try(size)
+    while (tw > inner_w or th > inner_h) and size > min_size:
+        size = max(min_size, int(size * 0.85))
+        font, wrapped, tw, th = _try(size)
 
-        # Rough char-per-line based on width / typical glyph width at this font size.
-        chars_per_line = max(14, int(WIDTH / (size * 0.55)))
-        display = textwrap.fill(text, width=chars_per_line)
-
-    bbox = draw.multiline_textbbox((0, 0), display, font=font, align="center", spacing=8)
+    bbox = draw.multiline_textbbox((0, 0), wrapped, font=font, align="center", spacing=size // 10)
     tw = bbox[2] - bbox[0]
     th = bbox[3] - bbox[1]
     x = (WIDTH - tw) // 2 - bbox[0]
     y = (HEIGHT - th) // 2 - bbox[1]
-    draw.multiline_text((x, y), display, fill=BLACK, font=font, align="center", spacing=8)
+    draw.multiline_text(
+        (x, y), wrapped, fill=BLACK, font=font, align="center", spacing=size // 10
+    )
 
     img.save(path, format="PNG", optimize=True)
     return path

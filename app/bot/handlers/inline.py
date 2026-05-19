@@ -9,8 +9,8 @@ from aiogram.types import (
     InlineQuery,
     InlineQueryResultArticle,
     InlineQueryResultCachedPhoto,
-    InlineQueryResultPhoto,
     InputTextMessageContent,
+    LinkPreviewOptions,
     Message,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,21 +102,34 @@ async def on_inline_query(
         title, description, caption = _meta(code, lang)
         url = _photo_url(code)
         if url is not None:
+            # Article style in the picker (compact list with title + description +
+            # thumbnail), but the sent message renders a large image preview via
+            # LinkPreviewOptions(url=…, prefer_large_media=True, show_above_text=True)
+            # — visually equivalent to a photo+caption message, while keeping the
+            # picker readable instead of a wall of full-size photos.
             results.append(
-                InlineQueryResultPhoto(
+                InlineQueryResultArticle(
                     id=code,
-                    photo_url=url,
-                    # In Bot API 7.0 the field was renamed thumb_url → thumbnail_url.
-                    thumbnail_url=url,
-                    photo_width=PHOTO_WIDTH,
-                    photo_height=PHOTO_HEIGHT,
                     title=title,
                     description=description,
-                    caption=caption,
-                    parse_mode="HTML",
+                    thumbnail_url=url,
+                    thumbnail_width=PHOTO_WIDTH,
+                    thumbnail_height=PHOTO_HEIGHT,
+                    input_message_content=InputTextMessageContent(
+                        message_text=caption,
+                        parse_mode="HTML",
+                        link_preview_options=LinkPreviewOptions(
+                            url=url,
+                            prefer_large_media=True,
+                            show_above_text=True,
+                        ),
+                    ),
                 )
             )
         elif code in file_ids:
+            # Legacy fallback when only file_id cache is available — Cached
+            # photo result natively delivers photo+caption, but picker still
+            # shows photos rather than article-style entries.
             results.append(
                 InlineQueryResultCachedPhoto(
                     id=code,
@@ -128,7 +141,7 @@ async def on_inline_query(
                 )
             )
         else:
-            # Last-resort fallback — no URL, no file_id. The picker shows the
+            # Last-resort fallback — no URL, no file_id. Picker shows the
             # default letter-on-white thumb but at least the metadata is right.
             results.append(
                 InlineQueryResultArticle(
