@@ -473,7 +473,11 @@ def register() -> None:
     registry.register_trainer(FlagToLetterTrainer())
     registry.register_trainer(LetterToFlagTrainer())
     registry.register_trainer(LetterToNameTrainer())
-    registry.register_trainer(NameToLetterTrainer())
+    # NameToLetterTrainer intentionally NOT registered: the prompt shows the
+    # phonetic name (e.g. «Альфа»), whose first Cyrillic letter mirrors the
+    # answer's Latin letter (Альфа→А→A). No learning happens — user just
+    # reads and clicks. LetterToNameTrainer already trains the same knowledge
+    # in the harder direction (letter → sound-alike distractor names).
     registry.register_trainer(LetterToMorseTrainer())
     registry.register_trainer(MorseToLetterTrainer())
     registry.register_trainer(LetterToMeaningTrainer())
@@ -489,7 +493,6 @@ def register() -> None:
     for tr in [
         FlagToLetterTrainer,
         LetterToNameTrainer,
-        NameToLetterTrainer,
         LetterToMorseTrainer,
         MorseToLetterTrainer,
     ]:

@@ -12,6 +12,7 @@ from the quiz answer handler (see `bot/handlers/quiz.py`).
 from __future__ import annotations
 
 import asyncio
+import random
 from datetime import datetime
 
 import pytz
@@ -27,7 +28,6 @@ from app.services.question_picker import pick_daily_batch
 from app.services.quiz_engine import build_question_from_pick, send_question
 from app.services.user_settings import (
     colregs_enabled_types,
-    colregs_night_mode,
     effective_count,
     effective_time_utc,
     is_paused,
@@ -50,10 +50,17 @@ def _colregs_filter_fn(enabled: set[str]):
 async def _build_question_for_pick(
     user, trainer_key: str, entry_code: str
 ):
-    """Apply per-user trainer options (currently: COLREGs night_mode)."""
+    """Prepare a question for daily delivery.
+
+    Note about `night_mode`: the user's Settings toggle governs *self-check*
+    only. Daily delivery deliberately ignores it and flips a fresh coin per
+    question — the point of the daily practice is to keep the user sharp in
+    both modes, day AND night, so they can't just disable one and never see
+    it again.
+    """
     opts: dict = {}
     if trainer_key.startswith("colregs."):
-        opts["night_mode"] = colregs_night_mode(user)
+        opts["night_mode"] = random.choice([True, False])
     return build_question_from_pick(trainer_key, entry_code, user.language, **opts)
 
 

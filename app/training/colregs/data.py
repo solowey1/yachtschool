@@ -111,6 +111,45 @@ def _rand_hdg() -> int:
     return random.randint(0, 359)
 
 
+# Half-angle of the sailing no-go zone. A sailboat cannot make way when its
+# heading is within this many degrees of the wind source — trying to sail
+# «into the wind» puts it «in irons». 40° covers typical cruising sailboats
+# (racers can point closer, ≈30°, but 40° is a safe general threshold).
+SAIL_DEAD_ZONE_HALF = 40
+
+
+def _sail_angle_off_wind(heading: int, wind: int) -> int:
+    """|angle| from the wind source to the bow, folded to [0, 180]. 0 means
+    dead into the wind, 180 means running dead downwind.
+    """
+    rel = (wind - heading) % 360
+    return min(rel, 360 - rel)
+
+
+def _is_sailable(heading: int, wind: int) -> bool:
+    return _sail_angle_off_wind(heading, wind) >= SAIL_DEAD_ZONE_HALF
+
+
+def _rand_sail_hdg(wind: int) -> int:
+    """Random heading that keeps a sailboat outside its no-go zone."""
+    for _ in range(200):
+        hdg = _rand_hdg()
+        if _is_sailable(hdg, wind):
+            return hdg
+    # Deterministically fall back to a broad reach (90° off wind) if
+    # 200 rolls somehow all landed in the 80°-wide dead zone.
+    return _norm(wind + 90)
+
+
+def _rand_hdg_for(vtype: VesselType, wind: int) -> int:
+    """Random heading appropriate for this vessel type. Sailboats respect
+    the dead-zone; everything else can point any way.
+    """
+    if vtype == VesselType.SAIL:
+        return _rand_sail_hdg(wind)
+    return _rand_hdg()
+
+
 def _opposing(hdg: int, spread: int = 10) -> int:
     return _norm(hdg + 180 - spread // 2 + random.randint(0, spread))
 
@@ -124,9 +163,19 @@ def _place_pair_crossing(hdg_a: int, hdg_b: int) -> tuple[tuple[float, float], t
 
 
 def _gen_head_on(vtype: VesselType) -> Scenario:
-    hdg_a = _rand_hdg()
-    hdg_b = _opposing(hdg_a)
     wind = _rand_hdg()
+    # Both vessels' headings need to be sailable when vtype=SAIL. Since A and
+    # B are ~180° apart, one being close-hauled means the other is running
+    # dead-downwind — near the opposite side of the dead zone. Constrain by
+    # rejection sampling.
+    for _ in range(200):
+        hdg_a = _rand_hdg_for(vtype, wind)
+        hdg_b = _opposing(hdg_a)
+        if vtype != VesselType.SAIL or _is_sailable(hdg_b, wind):
+            break
+    else:
+        hdg_a = _norm(wind + 90)  # beam reach — always valid for both
+        hdg_b = _opposing(hdg_a)
     (ax, ay), (bx, by) = _place_pair_crossing(hdg_a, hdg_b)
 
     label_a = VESSEL_LABELS[vtype]
@@ -153,10 +202,21 @@ def _gen_head_on(vtype: VesselType) -> Scenario:
 
 
 def _gen_overtaking(vtype_a: VesselType, vtype_b: VesselType) -> Scenario:
-    hdg_b = _rand_hdg()
-    # A overtakes B — A is behind (bearing ~180° from B's stern), similar heading
-    hdg_a = _norm(hdg_b + random.randint(-20, 20))
     wind = _rand_hdg()
+    # A overtakes B — A is behind (bearing ~180° from B's stern), similar heading.
+    # When either vessel is a sailboat, both headings must sit outside the
+    # dead zone; since A ≈ B ± 20°, if B is close-hauled A can be nudged into
+    # the no-go, so we rejection-sample.
+    for _ in range(200):
+        hdg_b = _rand_hdg_for(vtype_b, wind)
+        hdg_a = _norm(hdg_b + random.randint(-20, 20))
+        a_ok = vtype_a != VesselType.SAIL or _is_sailable(hdg_a, wind)
+        b_ok = vtype_b != VesselType.SAIL or _is_sailable(hdg_b, wind)
+        if a_ok and b_ok:
+            break
+    else:
+        hdg_b = _norm(wind + 90)
+        hdg_a = _norm(hdg_b + random.randint(-20, 20))
 
     # B ahead of A along the same course
     r = 0.18
@@ -239,9 +299,9 @@ def _gen_crossing_motor() -> Scenario:
 
 
 def _gen_sail_vs_motor() -> Scenario:
-    hdg_a = _rand_hdg()
-    hdg_b = _norm(hdg_a + random.randint(30, 150) * random.choice([-1, 1]))
     wind = _rand_hdg()
+    hdg_a = _rand_sail_hdg(wind)
+    hdg_b = _norm(hdg_a + random.randint(30, 150) * random.choice([-1, 1]))
     (ax, ay), (bx, by) = _place_pair_crossing(hdg_a, hdg_b)
 
     return Scenario(
@@ -267,9 +327,9 @@ def _gen_sail_vs_motor() -> Scenario:
 
 
 def _gen_sail_vs_fishing() -> Scenario:
-    hdg_a = _rand_hdg()
-    hdg_b = _norm(hdg_a + random.randint(30, 150) * random.choice([-1, 1]))
     wind = _rand_hdg()
+    hdg_a = _rand_sail_hdg(wind)
+    hdg_b = _norm(hdg_a + random.randint(30, 150) * random.choice([-1, 1]))
     (ax, ay), (bx, by) = _place_pair_crossing(hdg_a, hdg_b)
 
     return Scenario(
@@ -324,9 +384,18 @@ def _gen_motor_vs_nuc() -> Scenario:
 
 def _gen_sail_vs_sail() -> Scenario:
     wind = _rand_hdg()
-    hdg_a = _rand_hdg()
-    angle = random.randint(30, 150)
-    hdg_b = _norm(hdg_a + angle * random.choice([-1, 1]))
+    # Both sailboats must be outside the no-go zone. Rejection-sample until
+    # A and B are both sailable (otherwise «правый галс + ветер прямо в нос»
+    # comes out physically impossible).
+    for _ in range(200):
+        hdg_a = _rand_sail_hdg(wind)
+        angle = random.randint(30, 150)
+        hdg_b = _norm(hdg_a + angle * random.choice([-1, 1]))
+        if _is_sailable(hdg_b, wind):
+            break
+    else:
+        hdg_a = _norm(wind + 90)
+        hdg_b = _norm(wind - 90)
 
     (ax, ay), (bx, by) = _place_pair_crossing(hdg_a, hdg_b)
 
