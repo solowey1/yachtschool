@@ -79,6 +79,23 @@ class DonateCB(CallbackData, prefix="dn"):
     amount: int
 
 
+class PauseCB(CallbackData, prefix="pz"):
+    """Daily-delivery pause control.
+
+    actions:
+      open_header  — «⏸ Сделать паузу» tap on the daily-batch header;
+                     edits the header into a duration picker
+      pick         — duration picker was shown; `days` carries the tap.
+                     0 means «forever»
+      cancel_hdr   — restore the header to its original text/button
+      view         — open pause page from Settings (shows current status)
+      unpause      — clear the pause
+    """
+
+    action: str
+    days: int = 0
+
+
 class ColregsCB(CallbackData, prefix="cl"):
     """МППСС training submenu and trainer settings.
 

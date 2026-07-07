@@ -43,6 +43,12 @@ class User(Base):
         String(64), default="sail,motor,fishing,nuc,ram", nullable=False,
         server_default="sail,motor,fishing,nuc,ram",
     )
+    #: While set to a future timestamp, daily deliveries are paused for
+    #: this user. Year ≥ 9000 is the «paused forever» sentinel. NULL when
+    #: the user has never paused (or has resumed).
+    paused_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

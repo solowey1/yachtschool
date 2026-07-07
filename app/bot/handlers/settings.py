@@ -28,6 +28,10 @@ def _settings_root_text(user: User, lang: str) -> str:
     count_suffix = "" if user_settings.is_count_overridden(user) else t("settings.suffix_default", lang)
     time_value = user_settings.effective_time_utc(user)
     time_suffix = "" if user_settings.is_time_overridden(user) else t("settings.suffix_default", lang)
+
+    from app.bot.handlers.pause import _pause_status_text  # avoids circular import at module load
+    pause_status = _pause_status_text(user, lang)
+
     return t(
         "settings.title",
         lang,
@@ -36,6 +40,7 @@ def _settings_root_text(user: User, lang: str) -> str:
         count_suffix=count_suffix,
         time_value=time_value,
         time_suffix=time_suffix,
+        pause_status=pause_status,
         default_time=user_settings.env_default_time_str(),
         default_tz=user_settings.env_default_timezone(),
         default_count=user_settings.env_default_count(),

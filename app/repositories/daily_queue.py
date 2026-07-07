@@ -10,10 +10,36 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import DailyQuestion
+
+
+async def purge_pending_from_other_days(
+    session: AsyncSession, user_id: int, keep_day: str
+) -> int:
+    """Drop any unanswered rows from days ≠ `keep_day`.
+
+    Cleans up both never-sent items (backlog) AND sent-but-never-answered
+    ones (in-flight from a missed day). Answered rows stay for stats.
+
+    If an orphaned in-flight message is answered later, quiz.on_answer's
+    release_next_after_answer will silently no-op (no queue row matches);
+    the answer is still recorded through record_and_format_result, so
+    stats stay accurate.
+    """
+    stmt = (
+        delete(DailyQuestion)
+        .where(
+            DailyQuestion.user_id == user_id,
+            DailyQuestion.delivered_on != keep_day,
+            DailyQuestion.answered_at.is_(None),
+        )
+        .execution_options(synchronize_session=False)
+    )
+    result = await session.execute(stmt)
+    return int(result.rowcount or 0)
 
 
 async def batch_exists(session: AsyncSession, user_id: int, day: str) -> bool:

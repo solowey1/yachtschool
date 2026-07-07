@@ -6,12 +6,17 @@ string comparison every minute.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytz
 
 from app.config import settings
 from app.db.models import User
+
+# Preset pause durations offered in the picker (days). `0` is treated as
+# «forever» by set_pause().
+PAUSE_PRESETS: tuple[int, ...] = (1, 3, 7, 14, 30)
+_PAUSE_FOREVER = datetime(9999, 12, 31, tzinfo=pytz.UTC)
 
 
 def env_default_time_utc() -> str:
@@ -110,3 +115,43 @@ def colregs_night_mode(user: User) -> bool:
 
 def colregs_set_night_mode(user: User, value: bool) -> None:
     user.colregs_night_mode = value
+
+
+# ── Daily-delivery pause ─────────────────────────────────────────────────────
+
+def _now_utc() -> datetime:
+    return datetime.now(pytz.UTC)
+
+
+def _ensure_aware(dt: datetime) -> datetime:
+    """DB may hand back a naive datetime under some drivers — coerce to UTC."""
+    return dt if dt.tzinfo is not None else pytz.UTC.localize(dt)
+
+
+def is_paused(user: User, now: datetime | None = None) -> bool:
+    if user.paused_until is None:
+        return False
+    return _ensure_aware(user.paused_until) > (now or _now_utc())
+
+
+def is_paused_forever(user: User) -> bool:
+    return user.paused_until is not None and _ensure_aware(user.paused_until).year >= 9000
+
+
+def pause_ends_at(user: User) -> datetime | None:
+    """When the pause naturally lifts. None if not paused or paused forever."""
+    if not is_paused(user) or is_paused_forever(user):
+        return None
+    return _ensure_aware(user.paused_until) if user.paused_until else None
+
+
+def set_pause(user: User, days: int) -> None:
+    """`days > 0` → pause for that many days. `days == 0` → pause forever."""
+    if days <= 0:
+        user.paused_until = _PAUSE_FOREVER
+    else:
+        user.paused_until = _now_utc() + timedelta(days=days)
+
+
+def unpause(user: User) -> None:
+    user.paused_until = None

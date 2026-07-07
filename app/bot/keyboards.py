@@ -7,11 +7,13 @@ from app.bot.callbacks import (
     DonateCB,
     NavCB,
     NextCB,
+    PauseCB,
     RefCB,
     RefDetailCB,
     SettingsCB,
     TopicCB,
 )
+from app.services.user_settings import PAUSE_PRESETS
 from app.training.colregs.reference_data import (
     CHAPTER_ORDER,
     CHAPTER_RULES,
@@ -86,6 +88,59 @@ def donate_menu(lang: str) -> InlineKeyboardMarkup:
     )
 
 
+# ── Pause daily delivery ─────────────────────────────────────────────────────
+
+def daily_header_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Single «⏸ Сделать паузу» button pinned to the daily-batch header."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn(t("pause.btn_open", lang), PauseCB(action="open_header").pack())]
+        ]
+    )
+
+
+def pause_duration_picker(lang: str, *, from_header: bool) -> InlineKeyboardMarkup:
+    """1/3/7/14/30 in one row, «Навсегда» below, then back/cancel.
+
+    `from_header=True` means the picker replaced the daily header — cancel
+    should restore it. `from_header=False` means it came from Settings —
+    cancel returns to the settings root.
+    """
+    top = [_btn(str(n), PauseCB(action="pick", days=n).pack()) for n in PAUSE_PRESETS]
+    rows = [
+        top,
+        [_btn(t("pause.btn_forever", lang), PauseCB(action="pick", days=0).pack())],
+    ]
+    if from_header:
+        rows.append([_btn(t("pause.btn_cancel", lang), PauseCB(action="cancel_hdr").pack())])
+    else:
+        rows.append(
+            [_btn(t("menu.back_to_section", lang), NavCB(target="settings").pack())]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def pause_settings_view(lang: str, *, is_paused: bool) -> InlineKeyboardMarkup:
+    """From Settings → «⏸ Пауза». Shows either «pick duration» controls or,
+    when the user is already paused, a «Возобновить» button plus the same
+    picker (in case they want to extend or shorten).
+    """
+    rows: list[list[InlineKeyboardButton]] = []
+    if is_paused:
+        rows.append(
+            [_btn(t("pause.btn_unpause", lang), PauseCB(action="unpause").pack())]
+        )
+    top = [_btn(str(n), PauseCB(action="pick", days=n).pack()) for n in PAUSE_PRESETS]
+    rows.append(top)
+    rows.append(
+        [_btn(t("pause.btn_forever", lang), PauseCB(action="pick", days=0).pack())]
+    )
+    rows.append(
+        [_btn(t("menu.back_to_section", lang), NavCB(target="settings").pack())]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def settings_root(lang: str, *, language_pickable: bool) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if language_pickable:
@@ -97,6 +152,9 @@ def settings_root(lang: str, *, language_pickable: bool) -> InlineKeyboardMarkup
     )
     rows.append(
         [_btn(t("settings.btn_time", lang), SettingsCB(action="view", field="time").pack())]
+    )
+    rows.append(
+        [_btn(t("settings.btn_pause", lang), PauseCB(action="view").pack())]
     )
     rows.append([_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)

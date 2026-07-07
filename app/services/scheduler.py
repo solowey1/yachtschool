@@ -30,6 +30,7 @@ from app.services.user_settings import (
     colregs_night_mode,
     effective_count,
     effective_time_utc,
+    is_paused,
 )
 from app.training.colregs.data import involved_types
 
@@ -121,8 +122,18 @@ async def release_next_after_answer(
 async def _ensure_batch_for_user(
     bot: Bot, user_id: int, telegram_id: int, lang: str, count: int, day: str
 ) -> bool:
-    """Enqueue today's batch if it isn't there yet. Returns True when freshly enqueued."""
+    """Enqueue today's batch if it isn't there yet. Returns True when freshly enqueued.
+
+    Before enqueueing, drops any not-yet-sent rows from previous days —
+    that's what caps the visible batch at exactly `count` even after the
+    user missed several days (they get today's N, not N × missed_days).
+    """
     async with session_scope() as session:
+        # Backlog cleanup: never carry unsent rows across day boundaries.
+        purged = await daily_queue.purge_pending_from_other_days(session, user_id, day)
+        if purged:
+            logger.info("daily.purged_backlog", user_id=user_id, dropped=purged)
+
         if await daily_queue.batch_exists(session, user_id, day):
             return False
         batch = await pick_daily_batch(session, user_id, count=count)
@@ -132,8 +143,16 @@ async def _ensure_batch_for_user(
             return False
         await daily_queue.enqueue_batch(session, user_id, day, picks)
 
+    # Header carries a «⏸ Сделать паузу» button so users can defer daily
+    # delivery in one tap from the top of the batch, without menu diving.
+    from app.bot.keyboards import daily_header_keyboard
+
     try:
-        await bot.send_message(chat_id=telegram_id, text=t("daily.header", lang, count=count))
+        await bot.send_message(
+            chat_id=telegram_id,
+            text=t("daily.header", lang, count=count),
+            reply_markup=daily_header_keyboard(lang),
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("daily.header_failed", user_id=user_id, error=str(exc))
         return False
@@ -153,7 +172,7 @@ async def tick(bot: Bot) -> None:
         targets = [
             (u.id, u.telegram_id, u.language, effective_count(u))
             for u in active
-            if effective_time_utc(u) == current_hm
+            if effective_time_utc(u) == current_hm and not is_paused(u, now_utc)
         ]
 
     if not targets:
