@@ -146,7 +146,7 @@ async def open_stats(
     cq: CallbackQuery, session: AsyncSession, user: User, lang: str
 ) -> None:
     text = await build_stats_text(session, user, lang)
-    await _swap_text(cq, text, stats_menu(lang))
+    await _swap_text(cq, text, stats_menu(lang, unlocked=user.detailed_stats_unlocked))
     await cq.answer()
 
 

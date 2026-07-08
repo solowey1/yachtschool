@@ -33,6 +33,19 @@ class Settings(BaseSettings):
     inline_public_base_url: str | None = Field(None, alias="INLINE_PUBLIC_BASE_URL")
     web_port: int = Field(8080, alias="WEB_PORT")
 
+    # Telegram id of the admin. When this user buys the detailed-stats
+    # unlock, the price is 1 ⭐ instead of the public price (for testing the
+    # paid flow end-to-end without spending real Stars). NULL = no admin.
+    admin_telegram_id: int | None = Field(None, alias="ADMIN_TELEGRAM_ID")
+    #: Public price of the detailed-statistics unlock, in Telegram Stars.
+    detailed_stats_price: int = Field(1000, alias="DETAILED_STATS_PRICE")
+
+    def stats_price_for(self, telegram_id: int) -> int:
+        """1 ⭐ for the admin, the public price for everyone else."""
+        if self.admin_telegram_id is not None and telegram_id == self.admin_telegram_id:
+            return 1
+        return self.detailed_stats_price
+
     @field_validator("daily_delivery_time")
     @classmethod
     def _validate_time(cls, v: str) -> str:

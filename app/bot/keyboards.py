@@ -235,18 +235,21 @@ def stats_back(lang: str) -> InlineKeyboardMarkup:
 
 # ── Statistics ───────────────────────────────────────────────────────────────
 
-DETAILED_STATS_STARS = 1000
 
+def stats_menu(lang: str, *, unlocked: bool) -> InlineKeyboardMarkup:
+    """Overall stats screen: per-subject charts, detailed-stats, main menu.
 
-def stats_menu(lang: str) -> InlineKeyboardMarkup:
-    """Overall stats screen: per-subject charts, detailed-stats, main menu."""
+    The detailed-stats button shows a different icon depending on whether the
+    user has already unlocked it.
+    """
+    detailed_icon = icons.STATS_DETAILED_UNLOCKED if unlocked else icons.STATS_DETAILED_LOCKED
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 _btn(t("menu.subject.colregs", lang), StatsCB(action="subject", value="colregs").pack()),
                 _btn(t("menu.subject.mcs65", lang), StatsCB(action="subject", value="mcs65").pack()),
             ],
-            [_btn(t("stats.btn_detailed", lang), StatsCB(action="detailed").pack(), icon=icons.MENU_DONATE)],
+            [_btn(t("stats.btn_detailed", lang), StatsCB(action="detailed").pack(), icon=detailed_icon)],
             [_to_main(lang)],
         ]
     )
@@ -256,10 +259,10 @@ def stats_subject_back(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[_back(lang, NavCB(target="stats").pack())]])
 
 
-def stats_paywall(lang: str) -> InlineKeyboardMarkup:
+def stats_paywall(lang: str, *, stars: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [_btn(t("stats.btn_buy", lang, stars=DETAILED_STATS_STARS), StatsCB(action="buy").pack(), icon=icons.MENU_DONATE)],
+            [_btn(t("stats.btn_buy", lang, stars=stars), StatsCB(action="buy").pack(), icon=icons.STATS_BUY)],
             [_back(lang, NavCB(target="stats").pack())],
         ]
     )
