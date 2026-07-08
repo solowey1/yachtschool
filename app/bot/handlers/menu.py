@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery, FSInputFile
+from aiogram.types import CallbackQuery, FSInputFile, InputRichMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.callbacks import ColregsCB, NavCB, NextCB, RefCB, RefDetailCB, TopicCB
 from app.bot.handlers.reference import build_detail, build_reference_text, detail_section_for
 from app.bot.handlers.reference_colregs import (
     CHAPTER_RULES,
-)
-from app.bot.handlers.reference_colregs import (
     chapter_full_text as colregs_chapter_full_text,
+    chapter_rich_html as colregs_chapter_rich_html,
 )
 from app.bot.handlers.stats import build_stats_text
+from app.logger import get_logger
 from app.bot.keyboards import (
     colregs_settings,
     colregs_submenu,
@@ -37,6 +37,7 @@ from app.training.colregs.data import involved_types
 from app.training.registry import registry
 
 router = Router(name="menu")
+logger = get_logger(__name__)
 
 
 async def _swap_text(cq: CallbackQuery, text: str, keyboard) -> None:
@@ -326,7 +327,16 @@ async def open_reference_mcs65(cq: CallbackQuery, lang: str) -> None:
     NavCB.filter((F.target == "reference") & (F.subject == "colregs"))
 )
 async def open_reference_colregs(cq: CallbackQuery, lang: str) -> None:
-    await _swap_text(cq, t("menu.reference_colregs_title", lang), reference_colregs_menu(lang))
+    # A chapter article is a rich message which can't be edited back into a
+    # plain text menu, so delete it and post the chapter list fresh.
+    if cq.message is not None:
+        try:
+            await cq.message.delete()
+        except TelegramBadRequest:
+            pass
+        await cq.message.answer(
+            t("menu.reference_colregs_title", lang), reply_markup=reference_colregs_menu(lang)
+        )
     await cq.answer()
 
 
@@ -353,8 +363,24 @@ async def open_reference_colregs_section(
         await _swap_text(cq, t("common.error", lang), reference_colregs_menu(lang))
         await cq.answer()
         return
-    text = colregs_chapter_full_text(section, lang)
-    await _swap_long(cq, text, reference_colregs_chapter_back(lang))
+
+    back_kb = reference_colregs_chapter_back(lang)
+    # Bot API 10.1 rich message: real <h2>/<h3> headings, no 4096 split.
+    # Falls back to the plain long-text splitter if the rich send is rejected.
+    try:
+        await cq.bot.send_rich_message(
+            chat_id=cq.from_user.id,
+            rich_message=InputRichMessage(html=colregs_chapter_rich_html(section, lang)),
+            reply_markup=back_kb,
+        )
+        if cq.message is not None:
+            try:
+                await cq.message.delete()
+            except TelegramBadRequest:
+                pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("reference.rich_send_failed", section=section, error=str(exc))
+        await _swap_long(cq, colregs_chapter_full_text(section, lang), back_kb)
     await cq.answer()
 
 

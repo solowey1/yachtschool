@@ -8,6 +8,8 @@ side — it pairs each chapter/rule with its i18n string.
 
 from __future__ import annotations
 
+import re
+
 from app.i18n import t
 from app.training.colregs.reference_data import CHAPTER_ORDER, CHAPTER_RULES  # re-export
 
@@ -18,6 +20,7 @@ __all__ = [
     "about_text",
     "chapter_intro",
     "chapter_full_text",
+    "chapter_rich_html",
     "rule_text",
 ]
 
@@ -40,6 +43,60 @@ def rule_text(rule: str, lang: str) -> str:
 
 def about_text(lang: str) -> str:
     return t("reference.colregs.about", lang)
+
+
+_LEADING_BOLD = re.compile(r"\s*<b>(.*?)</b>\s*", re.S)
+
+
+def _blocks_to_html(text: str) -> str:
+    """Turn plain paragraph/bullet text into rich-message block HTML.
+
+    Double-newline separates blocks. A block whose lines all start with «•»
+    becomes a <ul>; otherwise it's a <p> with single newlines as <br>.
+    Inline tags already present in the source (<b>/<i>/<code>) pass through.
+    """
+    out: list[str] = []
+    for block in text.split("\n\n"):
+        lines = [ln for ln in block.split("\n") if ln.strip()]
+        if not lines:
+            continue
+        if len(lines) > 1 and all(ln.lstrip().startswith("•") for ln in lines):
+            items = "".join(f"<li>{ln.lstrip()[1:].strip()}</li>" for ln in lines)
+            out.append(f"<ul>{items}</ul>")
+        else:
+            out.append("<p>" + "<br>".join(lines) + "</p>")
+    return "".join(out)
+
+
+def _labeled_to_rich(text: str, heading_tag: str) -> str:
+    """Promote a leading <b>…</b> line to a heading, render the rest as blocks."""
+    m = _LEADING_BOLD.match(text)
+    if m:
+        head = f"<{heading_tag}>{m.group(1)}</{heading_tag}>"
+        rest = text[m.end():]
+    else:
+        head = ""
+        rest = text
+    return head + _blocks_to_html(rest)
+
+
+def chapter_rich_html(chapter: str, lang: str) -> str:
+    """Whole chapter as Bot API 10.1 rich-message HTML with real headings.
+
+    The chapter title is an <h2>; each rule/annex keeps its own <h3> heading
+    (promoted from its leading bold line). No length split — rich messages
+    aren't bound by the 4096-char sendMessage limit.
+    """
+    if chapter == "about":
+        return _labeled_to_rich(about_text(lang), "h2")
+
+    parts = [f"<h2>{t(f'reference.colregs.section.{chapter}', lang)}</h2>"]
+    intro = t(f"reference.colregs.intro.{chapter}", lang)
+    if intro != f"reference.colregs.intro.{chapter}":
+        parts.append(f"<p><i>{intro}</i></p>")
+    for code in CHAPTER_RULES.get(chapter, []):
+        parts.append(_labeled_to_rich(rule_text(code, lang), "h3"))
+    return "".join(parts)
 
 
 def chapter_full_text(chapter: str, lang: str) -> str:
