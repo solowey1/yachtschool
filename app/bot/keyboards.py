@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from app.bot import icons
 from app.bot.callbacks import (
     ColregsCB,
     DonateCB,
@@ -13,13 +14,9 @@ from app.bot.callbacks import (
     SettingsCB,
     TopicCB,
 )
-from app.services.user_settings import PAUSE_PRESETS
-from app.training.colregs.reference_data import (
-    CHAPTER_ORDER,
-    CHAPTER_RULES,
-    display_label as colregs_display_label,
-)
 from app.i18n import t, translator
+from app.services.user_settings import PAUSE_PRESETS
+from app.training.colregs.reference_data import CHAPTER_ORDER
 from app.training.mcs65 import data as mcs65_data
 from app.training.mcs65 import pennants as mcs65_pennants
 from app.training.registry import registry
@@ -44,8 +41,23 @@ MCS65_REFERENCE_SECTIONS: tuple[str, ...] = (
 SUBJECTS: tuple[str, ...] = ("colregs", "mcs65")
 
 
-def _btn(label: str, callback: str) -> InlineKeyboardButton:
-    return InlineKeyboardButton(text=label, callback_data=callback)
+def _btn(label: str, callback: str, *, icon: str | None = None) -> InlineKeyboardButton:
+    """Inline button with an optional custom-emoji leading icon.
+
+    Telegram requires non-empty button text, so callers that want «icon
+    only» pass a single space as the label.
+    """
+    return InlineKeyboardButton(
+        text=label, callback_data=callback, icon_custom_emoji_id=icon
+    )
+
+
+def _back(lang: str, callback: str) -> InlineKeyboardButton:
+    return _btn(t("menu.back_to_section", lang), callback, icon=icons.BACK)
+
+
+def _to_main(lang: str) -> InlineKeyboardButton:
+    return _btn(t("menu.back_to_main", lang), NavCB(target="main").pack(), icon=icons.TO_MAIN)
 
 
 def _chunk(items: list, size: int) -> list[list]:
@@ -67,23 +79,23 @@ DONATE_AMOUNTS: tuple[int, ...] = (50, 100, 250, 500, 1000)
 def main_menu(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [_btn(t("menu.section.reference", lang), NavCB(target="reference").pack())],
-            [_btn(t("menu.section.training", lang), NavCB(target="training").pack())],
-            [_btn(t("menu.section.stats", lang), NavCB(target="stats").pack())],
-            [_btn(t("menu.section.settings", lang), NavCB(target="settings").pack())],
-            [_btn(t("menu.section.donate", lang), NavCB(target="donate").pack())],
+            [_btn(t("menu.section.reference", lang), NavCB(target="reference").pack(), icon=icons.MENU_REFERENCE)],
+            [_btn(t("menu.section.training", lang), NavCB(target="training").pack(), icon=icons.MENU_TRAINING)],
+            [_btn(t("menu.section.stats", lang), NavCB(target="stats").pack(), icon=icons.MENU_STATS)],
+            [_btn(t("menu.section.settings", lang), NavCB(target="settings").pack(), icon=icons.MENU_SETTINGS)],
+            [_btn(t("menu.section.donate", lang), NavCB(target="donate").pack(), icon=icons.MENU_DONATE)],
         ]
     )
 
 
 def donate_menu(lang: str) -> InlineKeyboardMarkup:
     amounts_row = [
-        _btn(f"{n} ⭐", DonateCB(amount=n).pack()) for n in DONATE_AMOUNTS
+        _btn(str(n), DonateCB(amount=n).pack(), icon=icons.DONATE_STAR) for n in DONATE_AMOUNTS
     ]
     return InlineKeyboardMarkup(
         inline_keyboard=[
             amounts_row,
-            [_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())],
+            [_to_main(lang)],
         ]
     )
 
@@ -112,11 +124,9 @@ def pause_duration_picker(lang: str, *, from_header: bool) -> InlineKeyboardMark
         [_btn(t("pause.btn_forever", lang), PauseCB(action="pick", days=0).pack())],
     ]
     if from_header:
-        rows.append([_btn(t("pause.btn_cancel", lang), PauseCB(action="cancel_hdr").pack())])
+        rows.append([_btn(t("pause.btn_cancel", lang), PauseCB(action="cancel_hdr").pack(), icon=icons.BACK)])
     else:
-        rows.append(
-            [_btn(t("menu.back_to_section", lang), NavCB(target="settings").pack())]
-        )
+        rows.append([_back(lang, NavCB(target="settings").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -135,28 +145,33 @@ def pause_settings_view(lang: str, *, is_paused: bool) -> InlineKeyboardMarkup:
     rows.append(
         [_btn(t("pause.btn_forever", lang), PauseCB(action="pick", days=0).pack())]
     )
-    rows.append(
-        [_btn(t("menu.back_to_section", lang), NavCB(target="settings").pack())]
-    )
+    rows.append([_back(lang, NavCB(target="settings").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def settings_root(lang: str, *, language_pickable: bool) -> InlineKeyboardMarkup:
+def settings_root(lang: str, *, language_pickable: bool, current_count: int) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if language_pickable:
         rows.append(
             [_btn(t("settings.btn_lang", lang), SettingsCB(action="view", field="lang").pack())]
         )
+    # Count button shows the current daily-question count as its icon.
     rows.append(
-        [_btn(t("settings.btn_count", lang), SettingsCB(action="view", field="count").pack())]
+        [
+            _btn(
+                t("settings.btn_count", lang),
+                SettingsCB(action="view", field="count").pack(),
+                icon=icons.digit_icon(current_count),
+            )
+        ]
     )
     rows.append(
-        [_btn(t("settings.btn_time", lang), SettingsCB(action="view", field="time").pack())]
+        [_btn(t("settings.btn_time", lang), SettingsCB(action="view", field="time").pack(), icon=icons.SETTINGS_TIME)]
     )
     rows.append(
-        [_btn(t("settings.btn_pause", lang), PauseCB(action="view").pack())]
+        [_btn(t("settings.btn_pause", lang), PauseCB(action="view").pack(), icon=icons.SETTINGS_PAUSE)]
     )
-    rows.append([_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())])
+    rows.append([_to_main(lang)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -170,20 +185,24 @@ def settings_lang_picker(lang: str) -> InlineKeyboardMarkup:
         ]
         for code in translator().available_languages()
     ]
-    rows.append(
-        [_btn(t("menu.back_to_section", lang), NavCB(target="settings").pack())]
-    )
+    rows.append([_back(lang, NavCB(target="settings").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def settings_count_picker(lang: str) -> InlineKeyboardMarkup:
+    # Each preset shows only its number icon (text stripped to a single space,
+    # since Telegram requires non-empty button text).
     rows = [
         [
-            _btn(str(n), SettingsCB(action="set", field="count", value=str(n)).pack())
+            _btn(
+                " ",
+                SettingsCB(action="set", field="count", value=str(n)).pack(),
+                icon=icons.digit_icon(n),
+            )
             for n in COUNT_PRESETS
         ],
         [_btn(t("settings.btn_reset", lang), SettingsCB(action="reset", field="count").pack())],
-        [_btn(t("menu.back_to_section", lang), NavCB(target="settings").pack())],
+        [_back(lang, NavCB(target="settings").pack())],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -204,18 +223,12 @@ def settings_time_picker(lang: str) -> InlineKeyboardMarkup:
             ]
         )
     rows.append([_btn(t("settings.btn_reset", lang), SettingsCB(action="reset", field="time").pack())])
-    rows.append(
-        [_btn(t("menu.back_to_section", lang), NavCB(target="settings").pack())]
-    )
+    rows.append([_back(lang, NavCB(target="settings").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def stats_back(lang: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())]
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[[_to_main(lang)]])
 
 
 # ── Training ─────────────────────────────────────────────────────────────────
@@ -276,7 +289,7 @@ def colregs_settings(lang: str, *, night_mode: bool, enabled_types: set[str]) ->
             [_btn(label, ColregsCB(action="toggle_type", value=code).pack())]
         )
 
-    rows.append([_btn(t("menu.back_to_section", lang), ColregsCB(action="menu").pack())])
+    rows.append([_back(lang, ColregsCB(action="menu").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -291,9 +304,7 @@ def training_topics(lang: str, subject: str) -> InlineKeyboardMarkup:
                 )
             ]
         )
-    rows.append(
-        [_btn(t("menu.back_to_section", lang), NavCB(target="training").pack())]
-    )
+    rows.append([_back(lang, NavCB(target="training").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -309,22 +320,27 @@ def reference_subject_picker(lang: str) -> InlineKeyboardMarkup:
         ]
         for subject in SUBJECTS
     ]
-    rows.append([_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())])
+    rows.append([_to_main(lang)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def reference_mcs65_menu(lang: str) -> InlineKeyboardMarkup:
     rows = [
-        [_btn(t(f"reference.section.{code}", lang), RefCB(subject="mcs65", section=code).pack())]
+        [
+            _btn(
+                t(f"reference.section.{code}", lang),
+                RefCB(subject="mcs65", section=code).pack(),
+                icon=icons.MCS65_SECTION.get(code),
+            )
+        ]
         for code in MCS65_REFERENCE_SECTIONS
     ]
-    rows.append(
-        [_btn(t("menu.back_to_section", lang), NavCB(target="reference").pack())]
-    )
+    rows.append([_back(lang, NavCB(target="reference").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def reference_colregs_menu(lang: str) -> InlineKeyboardMarkup:
+    # Reference chapter buttons carry no custom icons (regulation look).
     rows = [
         [
             _btn(
@@ -334,50 +350,14 @@ def reference_colregs_menu(lang: str) -> InlineKeyboardMarkup:
         ]
         for code in CHAPTER_ORDER
     ]
-    rows.append(
-        [_btn(t("menu.back_to_section", lang), NavCB(target="reference").pack())]
-    )
+    rows.append([_back(lang, NavCB(target="reference").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def reference_colregs_part(lang: str, chapter: str) -> InlineKeyboardMarkup:
-    """Buttons for individual rules inside a COLREGs chapter, 5 per row.
-
-    Annexes (a1..a4) display as Roman numerals; regular rules as «1», «14», …
-    """
-    rules = CHAPTER_RULES.get(chapter, [])
-    rows: list[list[InlineKeyboardButton]] = []
-    for chunk in _chunk(rules, 5):
-        rows.append(
-            [
-                _btn(
-                    colregs_display_label(r),
-                    RefCB(subject="colregs", section=chapter, item=r).pack(),
-                )
-                for r in chunk
-            ]
-        )
-    rows.append(
-        [
-            _btn(
-                t("menu.back_to_section", lang),
-                NavCB(target="reference", subject="colregs").pack(),
-            )
-        ]
-    )
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def reference_back_to_part(lang: str, chapter: str) -> InlineKeyboardMarkup:
+def reference_colregs_chapter_back(lang: str) -> InlineKeyboardMarkup:
+    """Back button under a full chapter message — returns to the chapter list."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                _btn(
-                    t("menu.back_to_section", lang),
-                    RefCB(subject="colregs", section=chapter).pack(),
-                )
-            ]
-        ]
+        inline_keyboard=[[_back(lang, NavCB(target="reference", subject="colregs").pack())]]
     )
 
 
@@ -409,28 +389,14 @@ def reference_section_keyboard(section: str, lang: str) -> InlineKeyboardMarkup:
         )
         rows.append([_btn(t("mcs65.pennant_label.AP", lang), RefDetailCB(code="AP").pack())])
 
-    rows.append(
-        [
-            _btn(
-                t("menu.back_to_section", lang),
-                NavCB(target="reference", subject="mcs65").pack(),
-            )
-        ]
-    )
+    rows.append([_back(lang, NavCB(target="reference", subject="mcs65").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def reference_detail_back(section: str, lang: str) -> InlineKeyboardMarkup:
-    """Back button on a McCs-65 detail page — returns to the section list."""
+    """Back button on a МСС-65 detail page — returns to the section list."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                _btn(
-                    t("menu.back_to_section", lang),
-                    RefCB(subject="mcs65", section=section).pack(),
-                )
-            ]
-        ]
+        inline_keyboard=[[_back(lang, RefCB(subject="mcs65", section=section).pack())]]
     )
 
 
@@ -481,14 +447,10 @@ def quiz_next_keyboard(topic: str, lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [_btn(t("common.next_question", lang), NextCB(topic=topic).pack())],
-            [_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())],
+            [_to_main(lang)],
         ]
     )
 
 
 def daily_result_keyboard(lang: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [_btn(t("menu.back_to_main", lang), NavCB(target="main").pack())]
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[[_to_main(lang)]])

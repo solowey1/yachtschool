@@ -9,18 +9,17 @@ from app.bot.callbacks import ColregsCB, NavCB, NextCB, RefCB, RefDetailCB, Topi
 from app.bot.handlers.reference import build_detail, build_reference_text, detail_section_for
 from app.bot.handlers.reference_colregs import (
     CHAPTER_RULES,
-    about_text as colregs_about,
-    chapter_intro as colregs_chapter_intro,
-    rule_text as colregs_rule_text,
+)
+from app.bot.handlers.reference_colregs import (
+    chapter_full_text as colregs_chapter_full_text,
 )
 from app.bot.handlers.stats import build_stats_text
 from app.bot.keyboards import (
     colregs_settings,
     colregs_submenu,
     main_menu,
-    reference_back_to_part,
+    reference_colregs_chapter_back,
     reference_colregs_menu,
-    reference_colregs_part,
     reference_detail_back,
     reference_mcs65_menu,
     reference_section_keyboard,
@@ -29,12 +28,12 @@ from app.bot.keyboards import (
     training_subject_picker,
     training_topics,
 )
-from app.services import user_settings
-from app.training.colregs.data import involved_types
 from app.db.models import User
 from app.i18n import t
+from app.services import user_settings
 from app.services.question_picker import pick_for_topic
 from app.services.quiz_engine import build_question_from_pick, edit_to_question, send_question
+from app.training.colregs.data import involved_types
 from app.training.registry import registry
 
 router = Router(name="menu")
@@ -59,6 +58,78 @@ async def _swap_text(cq: CallbackQuery, text: str, keyboard) -> None:
         await cq.message.edit_text(text, reply_markup=keyboard)
     except TelegramBadRequest:
         await cq.message.answer(text, reply_markup=keyboard)
+
+
+TELEGRAM_TEXT_LIMIT = 4096
+
+
+def _split_html(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> list[str]:
+    """Split a long HTML string into ≤limit-char chunks on paragraph, then
+    line, boundaries. Never splits mid-tag for our content because every tag
+    in the reference (<b>/<i>/<code>) is opened and closed within one line.
+    """
+    if len(text) <= limit:
+        return [text]
+    chunks: list[str] = []
+    buf = ""
+    for para in text.split("\n\n"):
+        candidate = para if not buf else f"{buf}\n\n{para}"
+        if len(candidate) <= limit:
+            buf = candidate
+            continue
+        if buf:
+            chunks.append(buf)
+            buf = ""
+        # `para` alone may still exceed the limit — fall back to line splitting.
+        if len(para) <= limit:
+            buf = para
+            continue
+        line_buf = ""
+        for line in para.split("\n"):
+            cand2 = line if not line_buf else f"{line_buf}\n{line}"
+            if len(cand2) <= limit:
+                line_buf = cand2
+            else:
+                if line_buf:
+                    chunks.append(line_buf)
+                # Single line longer than the limit — hard-slice it.
+                while len(line) > limit:
+                    chunks.append(line[:limit])
+                    line = line[limit:]
+                line_buf = line
+        buf = line_buf
+    if buf:
+        chunks.append(buf)
+    return chunks
+
+
+async def _swap_long(cq: CallbackQuery, text: str, keyboard) -> None:
+    """Render a long reference article as one or more messages.
+
+    The first chunk replaces the current (menu) message; extra chunks are
+    sent as follow-ups. The back-button keyboard rides on the last chunk.
+    """
+    if cq.message is None:
+        return
+    chunks = _split_html(text)
+    last = len(chunks) - 1
+
+    # First chunk: edit in place when the current message is text, else resend.
+    first_kb = keyboard if last == 0 else None
+    if cq.message.photo:
+        try:
+            await cq.message.delete()
+        except TelegramBadRequest:
+            pass
+        await cq.message.answer(chunks[0], reply_markup=first_kb)
+    else:
+        try:
+            await cq.message.edit_text(chunks[0], reply_markup=first_kb)
+        except TelegramBadRequest:
+            await cq.message.answer(chunks[0], reply_markup=first_kb)
+
+    for i in range(1, len(chunks)):
+        await cq.message.answer(chunks[i], reply_markup=keyboard if i == last else None)
 
 
 # ── Top-level navigation ─────────────────────────────────────────────────────
@@ -269,49 +340,21 @@ async def open_reference_mcs65_section(
     await cq.answer()
 
 
-@router.callback_query(RefCB.filter((F.subject == "colregs") & (F.item.is_(None))))
+@router.callback_query(RefCB.filter(F.subject == "colregs"))
 async def open_reference_colregs_section(
     cq: CallbackQuery, callback_data: RefCB, lang: str
 ) -> None:
-    """Chapter intro page. «about» has no rules — just text + back; the rest
-    show the rule-number buttons under the intro.
+    """Full chapter as a long-form article — «about» or a Part with all its
+    rules inline. No per-rule pagination: the whole chapter is one long
+    message (auto-split when it exceeds Telegram's 4096-char limit).
     """
     section = callback_data.section
-    if section == "about":
-        text = colregs_about(lang)
-        keyboard = reference_back_to_part(lang, "about")  # actually returns to colregs menu — fix below
-        # Actually, "about" doesn't drill further. Back goes to colregs menu.
-        from app.bot.callbacks import NavCB as _NavCB
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text=t("menu.back_to_section", lang),
-                        callback_data=_NavCB(target="reference", subject="colregs").pack(),
-                    )
-                ]
-            ]
-        )
-    elif section in CHAPTER_RULES:
-        text = colregs_chapter_intro(section, lang)
-        keyboard = reference_colregs_part(lang, section)
-    else:
-        text = t("common.error", lang)
-        keyboard = reference_colregs_menu(lang)
-    await _swap_text(cq, text, keyboard)
-    await cq.answer()
-
-
-@router.callback_query(RefCB.filter((F.subject == "colregs") & (F.item.is_not(None))))
-async def open_reference_colregs_rule(
-    cq: CallbackQuery, callback_data: RefCB, lang: str
-) -> None:
-    """Single COLREGs rule page."""
-    rule = callback_data.item or ""
-    text = colregs_rule_text(rule, lang)
-    keyboard = reference_back_to_part(lang, callback_data.section)
-    await _swap_text(cq, text, keyboard)
+    if section != "about" and section not in CHAPTER_RULES:
+        await _swap_text(cq, t("common.error", lang), reference_colregs_menu(lang))
+        await cq.answer()
+        return
+    text = colregs_chapter_full_text(section, lang)
+    await _swap_long(cq, text, reference_colregs_chapter_back(lang))
     await cq.answer()
 
 

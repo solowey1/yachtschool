@@ -17,6 +17,7 @@ __all__ = [
     "CHAPTER_RULES",
     "about_text",
     "chapter_intro",
+    "chapter_full_text",
     "rule_text",
 ]
 
@@ -39,3 +40,16 @@ def rule_text(rule: str, lang: str) -> str:
 
 def about_text(lang: str) -> str:
     return t("reference.colregs.about", lang)
+
+
+def chapter_full_text(chapter: str, lang: str) -> str:
+    """Whole chapter as one long HTML string: the intro heading followed by
+    every rule (or annex) in full. The caller splits it into ≤4096-char
+    messages on paragraph boundaries — no per-rule pagination.
+    """
+    if chapter == "about":
+        return about_text(lang)
+    parts = [chapter_intro(chapter, lang)]
+    for code in CHAPTER_RULES.get(chapter, []):
+        parts.append(rule_text(code, lang))
+    return "\n\n".join(parts)

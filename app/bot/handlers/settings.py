@@ -68,12 +68,20 @@ def _has_multiple_languages() -> bool:
     return len(translator().available_languages()) > 1
 
 
+def _root_kb(user: User, lang: str):
+    return settings_root(
+        lang,
+        language_pickable=_has_multiple_languages(),
+        current_count=user_settings.effective_count(user),
+    )
+
+
 @router.callback_query(NavCB.filter(F.target == "settings"))
 async def open_settings(cq: CallbackQuery, user: User, lang: str) -> None:
     await _swap(
         cq,
         _settings_root_text(user, lang),
-        settings_root(lang, language_pickable=_has_multiple_languages()),
+        _root_kb(user, lang),
     )
     await cq.answer()
 
@@ -101,7 +109,7 @@ async def view_settings_subpage(
         await _swap(
             cq,
             _settings_root_text(user, lang),
-            settings_root(lang, language_pickable=_has_multiple_languages()),
+            _root_kb(user, lang),
         )
     await cq.answer()
 
@@ -132,7 +140,7 @@ async def apply_setting(
     await _swap(
         cq,
         _settings_root_text(user, lang),
-        settings_root(lang, language_pickable=_has_multiple_languages()),
+        _root_kb(user, lang),
     )
     await cq.answer(t("settings.updated", lang))
 
@@ -155,6 +163,6 @@ async def reset_setting(
     await _swap(
         cq,
         _settings_root_text(user, lang),
-        settings_root(lang, language_pickable=_has_multiple_languages()),
+        _root_kb(user, lang),
     )
     await cq.answer(t("settings.updated", lang))

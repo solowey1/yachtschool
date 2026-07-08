@@ -24,7 +24,6 @@ from app.bot.keyboards import (
     daily_header_keyboard,
     pause_duration_picker,
     pause_settings_view,
-    settings_root,
 )
 from app.db.models import User
 from app.i18n import t
