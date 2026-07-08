@@ -49,6 +49,11 @@ class User(Base):
     paused_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: One-time purchase (Telegram Stars) unlocking the per-day detailed
+    #: statistics navigator. False until the user pays.
+    detailed_stats_unlocked: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

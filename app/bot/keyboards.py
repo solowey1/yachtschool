@@ -12,6 +12,8 @@ from app.bot.callbacks import (
     RefCB,
     RefDetailCB,
     SettingsCB,
+    StatsCB,
+    StatsNavCB,
     TopicCB,
 )
 from app.i18n import t, translator
@@ -231,6 +233,56 @@ def stats_back(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[_to_main(lang)]])
 
 
+# ── Statistics ───────────────────────────────────────────────────────────────
+
+DETAILED_STATS_STARS = 1000
+
+
+def stats_menu(lang: str) -> InlineKeyboardMarkup:
+    """Overall stats screen: per-subject charts, detailed-stats, main menu."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _btn(t("menu.subject.colregs", lang), StatsCB(action="subject", value="colregs").pack()),
+                _btn(t("menu.subject.mcs65", lang), StatsCB(action="subject", value="mcs65").pack()),
+            ],
+            [_btn(t("stats.btn_detailed", lang), StatsCB(action="detailed").pack(), icon=icons.MENU_DONATE)],
+            [_to_main(lang)],
+        ]
+    )
+
+
+def stats_subject_back(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[_back(lang, NavCB(target="stats").pack())]])
+
+
+def stats_paywall(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn(t("stats.btn_buy", lang, stars=DETAILED_STATS_STARS), StatsCB(action="buy").pack(), icon=icons.MENU_DONATE)],
+            [_back(lang, NavCB(target="stats").pack())],
+        ]
+    )
+
+
+def stats_navigator(lang: str, unit: str, offset: int) -> InlineKeyboardMarkup:
+    """Prev/next within the current unit, unit switch, jump-to-current, back."""
+    nav_row = [_btn(t("stats.nav_prev", lang), StatsNavCB(unit=unit, offset=offset - 1).pack())]
+    if offset < 0:  # never navigate into the future
+        nav_row.append(_btn(t("stats.nav_current", lang), StatsNavCB(unit=unit, offset=0).pack()))
+        nav_row.append(_btn(t("stats.nav_next", lang), StatsNavCB(unit=unit, offset=offset + 1).pack()))
+    unit_row = [
+        _btn(
+            ("• " if u == unit else "") + t(f"stats.unit_{u}", lang),
+            StatsNavCB(unit=u, offset=0).pack(),
+        )
+        for u in ("day", "week", "month")
+    ]
+    return InlineKeyboardMarkup(
+        inline_keyboard=[nav_row, unit_row, [_back(lang, NavCB(target="stats").pack())]]
+    )
+
+
 # ── Training ─────────────────────────────────────────────────────────────────
 
 def training_subject_picker(lang: str) -> InlineKeyboardMarkup:
@@ -297,9 +349,13 @@ def training_topics(lang: str, subject: str) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for topic in registry.topics(subject=subject):
         # МСС-65 topics reuse the reference section icons where the codes line
-        # up (flags/names/morse/signals/pennants). Topics without a matching
-        # reference section (e.g. the mixed «letters» drill) get no icon.
-        icon = icons.MCS65_SECTION.get(topic.code) if subject == "mcs65" else None
+        # up (flags/names/morse/signals/pennants); the mixed «letters» drill
+        # has its own dedicated icon.
+        icon = None
+        if subject == "mcs65":
+            icon = icons.MCS65_SECTION.get(topic.code) or (
+                icons.MCS65_LETTERS if topic.code == "letters" else None
+            )
         rows.append(
             [
                 _btn(

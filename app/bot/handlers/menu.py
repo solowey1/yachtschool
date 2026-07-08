@@ -24,7 +24,7 @@ from app.bot.keyboards import (
     reference_mcs65_menu,
     reference_section_keyboard,
     reference_subject_picker,
-    stats_back,
+    stats_menu,
     training_subject_picker,
     training_topics,
 )
@@ -146,7 +146,7 @@ async def open_stats(
     cq: CallbackQuery, session: AsyncSession, user: User, lang: str
 ) -> None:
     text = await build_stats_text(session, user, lang)
-    await _swap_text(cq, text, stats_back(lang))
+    await _swap_text(cq, text, stats_menu(lang))
     await cq.answer()
 
 

@@ -79,6 +79,27 @@ class DonateCB(CallbackData, prefix="dn"):
     amount: int
 
 
+class StatsCB(CallbackData, prefix="s"):
+    """Statistics navigation.
+
+    action:
+      subject   — per-subject weekly chart (`value` = subject code)
+      detailed  — open the detailed-stats page (paywall or navigator)
+      buy       — send the 1000⭐ invoice for detailed stats
+    """
+
+    action: str
+    value: str | None = None
+
+
+class StatsNavCB(CallbackData, prefix="sn"):
+    """Detailed-stats period navigator. `unit` ∈ day/week/month, `offset` is
+    the signed distance from the current period (0 = current, never > 0)."""
+
+    unit: str
+    offset: int
+
+
 class PauseCB(CallbackData, prefix="pz"):
     """Daily-delivery pause control.
 

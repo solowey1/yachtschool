@@ -18,9 +18,11 @@ from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, LabeledPrice, Message, PreCheckoutQuery
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.callbacks import DonateCB, NavCB
 from app.bot.keyboards import donate_menu, main_menu
+from app.db.models import User
 from app.i18n import t
 from app.logger import get_logger
 
@@ -91,15 +93,29 @@ async def on_pre_checkout(query: PreCheckoutQuery) -> None:
 
 
 @router.message(F.successful_payment)
-async def on_successful_payment(message: Message, lang: str) -> None:
+async def on_successful_payment(
+    message: Message, session: AsyncSession, user: User, lang: str
+) -> None:
     payment = message.successful_payment
     amount = payment.total_amount if payment else 0
+    payload = payment.invoice_payload if payment else ""
     logger.info(
-        "donate.received",
+        "payment.received",
         user_id=message.from_user.id if message.from_user else None,
         amount=amount,
+        payload=payload,
         currency=payment.currency if payment else None,
     )
+
+    # Detailed-stats purchase unlocks a per-user entitlement; anything else is
+    # treated as a plain donation.
+    if payload == "detailed_stats":
+        if user is not None:
+            user.detailed_stats_unlocked = True
+            await session.flush()
+        await message.answer(t("stats.bought", lang), reply_markup=main_menu(lang))
+        return
+
     await message.answer(
         t("donate.thanks", lang, amount=amount),
         reply_markup=main_menu(lang),

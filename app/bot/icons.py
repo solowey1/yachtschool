@@ -15,7 +15,7 @@ from __future__ import annotations
 # ── Main menu ────────────────────────────────────────────────────────────────
 MENU_REFERENCE = "5778672437122045013"
 MENU_TRAINING = "5938195768832692153"
-MENU_STATS = "5938539885907415367"
+MENU_STATS = "5936143551854285132"
 MENU_SETTINGS = "5850309953293653168"
 MENU_DONATE = "5773677501825945508"
 
@@ -33,6 +33,9 @@ SETTINGS_PAUSE = "6039636621416993073"
 # ── Training: МППСС-72 submenu ───────────────────────────────────────────────
 COLREGS_TRAIN = "5773626993010546707"       # «Тренировать»
 COLREGS_TRAIN_SETTINGS = "6037496202990194718"  # «Настройки тренажёра»
+
+# ── Training: МСС-65 «Буквы (смешанный режим)» ───────────────────────────────
+MCS65_LETTERS = "5767262289564536912"
 
 # ── Reference: МСС-65 section list ───────────────────────────────────────────
 # Keys match the section codes in keyboards.MCS65_REFERENCE_SECTIONS.

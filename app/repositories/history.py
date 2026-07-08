@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import case, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -131,6 +131,60 @@ async def overall_stats(session: AsyncSession, user_id: int) -> tuple[int, int]:
     )
     row = res.one()
     return int(row.total or 0), int(row.correct or 0)
+
+
+async def accuracy_in_range(
+    session: AsyncSession,
+    user_id: int,
+    start: datetime,
+    end: datetime,
+    subject: str | None = None,
+) -> tuple[int, int, int]:
+    """(total, correct, skipped) for answers with start ≤ asked_at < end.
+
+    Counts every answer including daily-delivery ones (they're recorded the
+    same way as interactive quiz answers).
+    """
+    q = (
+        select(func.count(), _correct_sum, _skipped_sum)
+        .where(
+            QuestionAnswer.user_id == user_id,
+            QuestionAnswer.asked_at >= start,
+            QuestionAnswer.asked_at < end,
+        )
+    )
+    if subject is not None:
+        q = q.where(QuestionAnswer.subject == subject)
+    row = (await session.execute(q)).one()
+    return int(row[0] or 0), int(row[1] or 0), int(row[2] or 0)
+
+
+async def subject_topic_stats_in_range(
+    session: AsyncSession,
+    user_id: int,
+    start: datetime,
+    end: datetime,
+) -> list[tuple[str, str, int, int, int]]:
+    """Per-(subject, topic) breakdown within a time window."""
+    res = await session.execute(
+        select(
+            QuestionAnswer.subject,
+            QuestionAnswer.topic,
+            func.count().label("total"),
+            _correct_sum.label("correct"),
+            _skipped_sum.label("skipped"),
+        )
+        .where(
+            QuestionAnswer.user_id == user_id,
+            QuestionAnswer.asked_at >= start,
+            QuestionAnswer.asked_at < end,
+        )
+        .group_by(QuestionAnswer.subject, QuestionAnswer.topic)
+    )
+    return [
+        (r.subject, r.topic, int(r.total), int(r.correct or 0), int(r.skipped or 0))
+        for r in res.all()
+    ]
 
 
 async def mark_delivered(session: AsyncSession, user_id: int, day: date) -> bool:

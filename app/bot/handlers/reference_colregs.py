@@ -88,9 +88,9 @@ def chapter_rich_html(chapter: str, lang: str) -> str:
     aren't bound by the 4096-char sendMessage limit.
     """
     if chapter == "about":
-        return _labeled_to_rich(about_text(lang), "h2")
+        return _labeled_to_rich(about_text(lang), "h1")
 
-    parts = [f"<h2>{t(f'reference.colregs.section.{chapter}', lang)}</h2>"]
+    parts = [f"<h1>{t(f'reference.colregs.section.{chapter}', lang)}</h1>"]
     intro = t(f"reference.colregs.intro.{chapter}", lang)
     if intro != f"reference.colregs.intro.{chapter}":
         parts.append(f"<p><i>{intro}</i></p>")
