@@ -33,6 +33,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       INLINE_PUBLIC_BASE_URL: ${INLINE_PUBLIC_BASE_URL:-}
       WEB_PORT: 8080
+      ADMIN_TELEGRAM_ID: ${ADMIN_TELEGRAM_ID:-}
+      DETAILED_STATS_PRICE: ${DETAILED_STATS_PRICE:-1000}
     ports:
       # The bot exposes a small HTTP server with /flags/{name}.png — bind
       # it to localhost only; the host's nginx is expected to proxy it

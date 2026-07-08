@@ -32,11 +32,17 @@ def pct(correct: int, total: int) -> int:
     return round(correct * 100 / total) if total else 0
 
 
-def chart_row(label: str, correct: int, total: int) -> str:
-    """`label  🀫🀫…🀆  NN%` — one accuracy line; «нет данных» when empty."""
+def chart_row(label: str, correct: int, total: int, *, width: int = 0) -> str:
+    """`label 🀫🀫…🀆 NN%` — one accuracy line, wrapped in monospace so the
+    labels line up under one another. `width` left-pads the label so rows
+    with different-length labels still align. «—» when there's no data.
+    """
+    lbl = label.ljust(width) if width else label
     if total == 0:
-        return f"{label}  {EMPTY * _CELLS}  —"
-    return f"{label}  {bar(pct(correct, total))}  {pct(correct, total)}% ({correct}/{total})"
+        body = f"{lbl}  {EMPTY * _CELLS}  —"
+    else:
+        body = f"{lbl}  {bar(pct(correct, total))}  {pct(correct, total)}% ({correct}/{total})"
+    return f"<code>{body}</code>"
 
 
 # ── Period math (UTC) ─────────────────────────────────────────────────────────
@@ -60,7 +66,7 @@ def day_period(offset: int, *, ref: datetime | None = None) -> Period:
     ref = ref or now_utc()
     start = _midnight(ref) + timedelta(days=offset)
     end = start + timedelta(days=1)
-    return Period(start, end, start.strftime("%d.%m.%Y"))
+    return Period(start, end, start.strftime("%d.%m"))
 
 
 def week_period(offset: int, *, ref: datetime | None = None) -> Period:
@@ -69,7 +75,7 @@ def week_period(offset: int, *, ref: datetime | None = None) -> Period:
     start = monday + timedelta(weeks=offset)
     end = start + timedelta(days=7)
     last = end - timedelta(days=1)
-    return Period(start, end, f"{start.strftime('%d.%m')}–{last.strftime('%d.%m.%Y')}")
+    return Period(start, end, f"{start.strftime('%d.%m')}–{last.strftime('%d.%m')}")
 
 
 def _add_months(d: datetime, months: int) -> datetime:

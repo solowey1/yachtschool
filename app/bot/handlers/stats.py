@@ -10,13 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.callbacks import StatsCB, StatsNavCB
 from app.bot.keyboards import (
-    DETAILED_STATS_STARS,
     SUBJECTS,
     stats_menu,
     stats_navigator,
     stats_paywall,
     stats_subject_back,
 )
+from app.config import settings
 from app.db.models import User
 from app.i18n import t
 from app.logger import get_logger
@@ -89,7 +89,7 @@ async def build_stats_text(session: AsyncSession, user: User, lang: str) -> str:
 @router.message(Command("stats"))
 async def cmd_stats(message: Message, session: AsyncSession, user: User, lang: str) -> None:
     text = await build_stats_text(session, user, lang)
-    await message.answer(text, reply_markup=stats_menu(lang))
+    await message.answer(text, reply_markup=stats_menu(lang, unlocked=user.detailed_stats_unlocked))
 
 
 # ── Per-subject weekly chart ─────────────────────────────────────────────────
@@ -133,12 +133,17 @@ async def stats_subject(
 
 # ── Detailed stats: paywall / navigator ──────────────────────────────────────
 
+async def _show_paywall(cq: CallbackQuery, lang: str) -> None:
+    stars = settings.stats_price_for(cq.from_user.id)
+    await _swap(cq, t("stats.paywall", lang, stars=stars), stats_paywall(lang, stars=stars))
+
+
 @router.callback_query(StatsCB.filter(F.action == "detailed"))
 async def stats_detailed(cq: CallbackQuery, user: User, lang: str) -> None:
     if user.detailed_stats_unlocked:
         await _render_navigator(cq, user, lang, unit="day", offset=0)
     else:
-        await _swap(cq, t("stats.paywall", lang, stars=DETAILED_STATS_STARS), stats_paywall(lang))
+        await _show_paywall(cq, lang)
     await cq.answer()
 
 
@@ -148,6 +153,7 @@ async def stats_buy(cq: CallbackQuery, user: User, lang: str) -> None:
         await _render_navigator(cq, user, lang, unit="day", offset=0)
         await cq.answer()
         return
+    stars = settings.stats_price_for(cq.from_user.id)  # 1 ⭐ for the admin
     try:
         await cq.bot.send_invoice(
             chat_id=cq.from_user.id,
@@ -155,7 +161,7 @@ async def stats_buy(cq: CallbackQuery, user: User, lang: str) -> None:
             description=t("stats.invoice_description", lang),
             payload=DETAILED_STATS_PAYLOAD,
             currency="XTR",
-            prices=[LabeledPrice(label=t("stats.invoice_label", lang), amount=DETAILED_STATS_STARS)],
+            prices=[LabeledPrice(label=t("stats.invoice_label", lang), amount=stars)],
             provider_token="",
         )
         await cq.answer()
@@ -169,7 +175,7 @@ async def stats_navigate(
     cq: CallbackQuery, callback_data: StatsNavCB, user: User, lang: str
 ) -> None:
     if not user.detailed_stats_unlocked:
-        await _swap(cq, t("stats.paywall", lang, stars=DETAILED_STATS_STARS), stats_paywall(lang))
+        await _show_paywall(cq, lang)
         await cq.answer()
         return
     offset = min(0, int(callback_data.offset))  # never into the future
@@ -196,16 +202,18 @@ async def _render_navigator(
         ct, tt = per_subject[subject]
         per_subject[subject] = (ct + tcorrect, tt + ttotal)
 
+    labels = [t("stats.row_overall", lang)] + [t(f"menu.subject.{s}", lang) for s in SUBJECTS]
+    width = max(len(x) for x in labels)
     lines = [
         t("stats.detailed_title", lang),
         "",
         t(f"stats.unit_name_{unit}", lang) + ": <b>" + period.label + "</b>",
         "",
-        stats_charts.chart_row(t("stats.row_overall", lang), correct, total),
+        stats_charts.chart_row(t("stats.row_overall", lang), correct, total, width=width),
     ]
     for subject in SUBJECTS:
         sc, st_ = per_subject.get(subject, (0, 0))
         lines.append(
-            stats_charts.chart_row(t(f"menu.subject.{subject}", lang), sc, st_)
+            stats_charts.chart_row(t(f"menu.subject.{subject}", lang), sc, st_, width=width)
         )
     await _swap(cq, "\n".join(lines), stats_navigator(lang, unit, offset))
