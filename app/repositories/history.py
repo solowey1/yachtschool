@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import case, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -18,6 +18,7 @@ async def record_answer(
     trainer_key: str,
     entry_code: str,
     is_correct: bool,
+    is_skipped: bool = False,
 ) -> None:
     session.add(
         QuestionAnswer(
@@ -27,6 +28,7 @@ async def record_answer(
             trainer_key=trainer_key,
             entry_code=entry_code,
             is_correct=is_correct,
+            is_skipped=is_skipped,
         )
     )
     await session.flush()
@@ -79,6 +81,7 @@ async def latest_wrong_answers(
 
 
 _correct_sum = func.sum(case((QuestionAnswer.is_correct, 1), else_=0))
+_skipped_sum = func.sum(case((QuestionAnswer.is_skipped, 1), else_=0))
 
 
 async def topic_stats(
@@ -97,6 +100,27 @@ async def topic_stats(
     return [(r.topic, int(r.total), int(r.correct or 0)) for r in res.all()]
 
 
+async def subject_topic_stats(
+    session: AsyncSession, user_id: int
+) -> list[tuple[str, str, int, int, int]]:
+    """Per-(subject, topic) breakdown: (subject, topic, total, correct, skipped)."""
+    res = await session.execute(
+        select(
+            QuestionAnswer.subject,
+            QuestionAnswer.topic,
+            func.count().label("total"),
+            _correct_sum.label("correct"),
+            _skipped_sum.label("skipped"),
+        )
+        .where(QuestionAnswer.user_id == user_id)
+        .group_by(QuestionAnswer.subject, QuestionAnswer.topic)
+    )
+    return [
+        (r.subject, r.topic, int(r.total), int(r.correct or 0), int(r.skipped or 0))
+        for r in res.all()
+    ]
+
+
 async def overall_stats(session: AsyncSession, user_id: int) -> tuple[int, int]:
     """Return (total_answers, correct_answers)."""
     res = await session.execute(
@@ -107,6 +131,60 @@ async def overall_stats(session: AsyncSession, user_id: int) -> tuple[int, int]:
     )
     row = res.one()
     return int(row.total or 0), int(row.correct or 0)
+
+
+async def accuracy_in_range(
+    session: AsyncSession,
+    user_id: int,
+    start: datetime,
+    end: datetime,
+    subject: str | None = None,
+) -> tuple[int, int, int]:
+    """(total, correct, skipped) for answers with start ≤ asked_at < end.
+
+    Counts every answer including daily-delivery ones (they're recorded the
+    same way as interactive quiz answers).
+    """
+    q = (
+        select(func.count(), _correct_sum, _skipped_sum)
+        .where(
+            QuestionAnswer.user_id == user_id,
+            QuestionAnswer.asked_at >= start,
+            QuestionAnswer.asked_at < end,
+        )
+    )
+    if subject is not None:
+        q = q.where(QuestionAnswer.subject == subject)
+    row = (await session.execute(q)).one()
+    return int(row[0] or 0), int(row[1] or 0), int(row[2] or 0)
+
+
+async def subject_topic_stats_in_range(
+    session: AsyncSession,
+    user_id: int,
+    start: datetime,
+    end: datetime,
+) -> list[tuple[str, str, int, int, int]]:
+    """Per-(subject, topic) breakdown within a time window."""
+    res = await session.execute(
+        select(
+            QuestionAnswer.subject,
+            QuestionAnswer.topic,
+            func.count().label("total"),
+            _correct_sum.label("correct"),
+            _skipped_sum.label("skipped"),
+        )
+        .where(
+            QuestionAnswer.user_id == user_id,
+            QuestionAnswer.asked_at >= start,
+            QuestionAnswer.asked_at < end,
+        )
+        .group_by(QuestionAnswer.subject, QuestionAnswer.topic)
+    )
+    return [
+        (r.subject, r.topic, int(r.total), int(r.correct or 0), int(r.skipped or 0))
+        for r in res.all()
+    ]
 
 
 async def mark_delivered(session: AsyncSession, user_id: int, day: date) -> bool:

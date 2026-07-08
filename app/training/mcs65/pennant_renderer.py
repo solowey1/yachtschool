@@ -23,6 +23,8 @@ from app.training.mcs65.flag_renderer import (
     WHITE,
     WIDTH,
     YELLOW,
+    _draw_checkerboard,
+    CHECKER_LIGHT,
 )
 
 # Numeral / substitute / answering pennants are long isosceles triangles.
@@ -117,8 +119,15 @@ def _solid(color: tuple[int, int, int]) -> Image.Image:
 
 
 def _mask_to_pennant(rect: Image.Image) -> Image.Image:
-    """Crop a rectangle to a long isosceles-triangle pennant pointing to the fly side."""
-    canvas = Image.new("RGB", (PENNANT_WIDTH, PENNANT_HEIGHT), WHITE)
+    """Crop a rectangle to a long isosceles-triangle pennant pointing to the fly side.
+
+    Area outside the triangle is filled with a light/dark checker so the
+    pennant's shape is obvious — same convention as graphic-editor
+    «transparent» pattern.
+    """
+    canvas = Image.new("RGB", (PENNANT_WIDTH, PENNANT_HEIGHT), CHECKER_LIGHT)
+    canvas_draw = ImageDraw.Draw(canvas)
+    _draw_checkerboard(canvas_draw, 0, 0, PENNANT_WIDTH, PENNANT_HEIGHT)
     mask = Image.new("L", (PENNANT_WIDTH, PENNANT_HEIGHT), 0)
     mdraw = ImageDraw.Draw(mask)
     mdraw.polygon(

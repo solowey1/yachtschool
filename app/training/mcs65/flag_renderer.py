@@ -24,10 +24,38 @@ RED = (206, 17, 38)
 BLUE = (0, 56, 168)
 YELLOW = (255, 205, 0)
 
+# Checkerboard fill for «transparent» regions outside swallowtail/pennant
+# shapes. Mimics the see-through pattern used by image editors so the user
+# instantly recognises «this is not part of the flag» rather than mistaking
+# the empty area for, say, a red or white field.
+CHECKER_LIGHT = (224, 224, 224)
+CHECKER_DARK = (192, 192, 192)
+CHECKER_SIZE = 12
+
+
+def _draw_checkerboard(draw: ImageDraw.ImageDraw, x0: int, y0: int, x1: int, y1: int) -> None:
+    """Fill the (x0,y0)-(x1,y1) rectangle with a light/dark grey checker."""
+    for j, y in enumerate(range(y0, y1, CHECKER_SIZE)):
+        for i, x in enumerate(range(x0, x1, CHECKER_SIZE)):
+            color = CHECKER_LIGHT if (i + j) % 2 == 0 else CHECKER_DARK
+            draw.rectangle(
+                [(x, y), (min(x + CHECKER_SIZE, x1), min(y + CHECKER_SIZE, y1))],
+                fill=color,
+            )
+
 
 def _new() -> tuple[Image.Image, ImageDraw.ImageDraw]:
-    img = Image.new("RGB", (WIDTH, HEIGHT), WHITE)
-    return img, ImageDraw.Draw(img)
+    """Blank canvas with a checkerboard «transparent» background.
+
+    Rectangular flags (C-Z aside from A) paint the whole canvas with their
+    own pattern, hiding the checkerboard entirely. Swallowtail (A) and the
+    pennant (B) leave parts of it visible — the cut-out notch and the area
+    past the triangle — making the shape obvious.
+    """
+    img = Image.new("RGB", (WIDTH, HEIGHT), CHECKER_LIGHT)
+    draw = ImageDraw.Draw(img)
+    _draw_checkerboard(draw, 0, 0, WIDTH, HEIGHT)
+    return img, draw
 
 
 def _frame(draw: ImageDraw.ImageDraw) -> None:
@@ -414,6 +442,61 @@ def _cleanup_stale_text_cards() -> None:
                 pass
 
 
+def _make_checker_bg(size: tuple[int, int], cell: int = 14) -> Image.Image:
+    """Light/medium-gray checker pattern used as a transparency indicator,
+    same idea as Photoshop/GIMP's «no background» visualisation. Returned
+    as RGBA so it can be alpha-composited with a flag.
+    """
+    w, h = size
+    bg = Image.new("RGBA", size, (255, 255, 255, 255))
+    dr = ImageDraw.Draw(bg)
+    light = (218, 222, 226, 255)
+    dark = (188, 192, 196, 255)
+    for y in range(0, h, cell):
+        for x in range(0, w, cell):
+            color = light if ((x // cell + y // cell) % 2 == 0) else dark
+            dr.rectangle([(x, y), (x + cell, y + cell)], fill=color)
+    return bg
+
+
+def _flatten_if_transparent(path: Path) -> bool:
+    """Composite onto a checker bg when `path` has alpha. Returns True if rewritten."""
+    with Image.open(path) as img:
+        has_alpha = (
+            img.mode in ("RGBA", "LA")
+            or (img.mode == "P" and "transparency" in img.info)
+        )
+        if not has_alpha:
+            return False
+        rgba = img.convert("RGBA")
+        checker = _make_checker_bg(rgba.size)
+        composed = Image.alpha_composite(checker, rgba).convert("RGB")
+    composed.save(path, format="PNG", optimize=True)
+    return True
+
+
+def flatten_assets_transparency() -> int:
+    """Walk the flags directory once and flatten any RGBA images onto a
+    checker pattern. Skips runtime-generated artifacts (text cards,
+    inline thumbnails) — those are produced from the flattened sources.
+
+    Returns the number of files rewritten. Idempotent: already-opaque
+    files are left untouched.
+    """
+    if not settings.flags_dir.is_dir():
+        return 0
+    rewritten = 0
+    for f in sorted(settings.flags_dir.glob("*.png")):
+        if f.name.startswith(("_thumb_", "card_")):
+            continue
+        try:
+            if _flatten_if_transparent(f):
+                rewritten += 1
+        except OSError:
+            continue
+    return rewritten
+
+
 def prerender_all() -> None:
     """Render the full alphabet up-front so the first quiz is snappy."""
     from app.training.mcs65.data import all_codes
@@ -425,12 +508,11 @@ def prerender_all() -> None:
 
 
 def compose_numbered_grid(image_paths: list[Path]) -> bytes:
-    """Compose 4 images into a 2×2 numbered grid, return PNG bytes.
+    """Compose 4 images into a 2×2 A/B/C/D-labelled grid, return PNG bytes.
 
-    Used by trainers that ask the user to pick visually from several flags —
-    each cell gets a 1–4 badge so the inline keyboard can carry numeric labels.
-    Generated fresh per question (cheap with Pillow), no on-disk cache: order
-    is randomised per call so caching by permutation would be wasteful.
+    Used by visual-grid trainers — each cell gets an A/B/C/D badge that
+    matches the inline answer buttons. Generated fresh per question, no
+    on-disk cache: order is randomised per call so caching would be wasteful.
     """
     if len(image_paths) != 4:
         raise ValueError(f"compose_numbered_grid expects 4 images, got {len(image_paths)}")
@@ -447,6 +529,7 @@ def compose_numbered_grid(image_paths: list[Path]) -> bytes:
         font = ImageFont.load_default()
 
     positions = [(0, 0), (1, 0), (0, 1), (1, 1)]
+    badge_letters = ("A", "B", "C", "D")
     for i, (col, row) in enumerate(positions):
         x = pad + col * (tile_w + pad)
         y = pad + row * (tile_h + pad)
@@ -455,13 +538,13 @@ def compose_numbered_grid(image_paths: list[Path]) -> bytes:
         badge_d = 48
         bx, by = x + 8, y + 8
         draw.ellipse([(bx, by), (bx + badge_d, by + badge_d)], fill=BLACK)
-        num = str(i + 1)
-        bbox = draw.textbbox((0, 0), num, font=font)
+        label = badge_letters[i]
+        bbox = draw.textbbox((0, 0), label, font=font)
         tw_text = bbox[2] - bbox[0]
         th_text = bbox[3] - bbox[1]
         draw.text(
             (bx + (badge_d - tw_text) // 2 - bbox[0], by + (badge_d - th_text) // 2 - bbox[1]),
-            num,
+            label,
             fill=WHITE,
             font=font,
         )

@@ -1,21 +1,34 @@
-"""COLREGs-72 trainer — encounter situation recognition."""
+"""МППСС-72 (COLREGs) trainer — encounter situation recognition."""
 
 from __future__ import annotations
 
 import random
 
 from app.training.base import Option, Question, Trainer
-from app.training.colregs.data import (
-    SCENARIO_CODES,
-    SUBJECT_CODE,
-    generate_for_code,
-)
+from app.training.colregs.data import SCENARIO_CODES, SUBJECT_CODE, generate_for_code
 from app.training.colregs.renderer import render_scenario
 from app.training.registry import registry
 
 
+def _shuffle_deterministic(items: list, seed: str) -> list:
+    """Like random.shuffle, but doesn't perturb the global random state.
+
+    The seed (typically the entry_code) makes the answer order stable across
+    rebuilds — the result message looks up the right option text when it
+    rebuilds the question for the explanation.
+    """
+    state = random.getstate()
+    random.seed(seed)
+    try:
+        shuffled = list(items)
+        random.shuffle(shuffled)
+        return shuffled
+    finally:
+        random.setstate(state)
+
+
 class ColregsTrainer(Trainer):
-    """Presents a random encounter scenario image and asks who gives way."""
+    """One trainer per encounter type variant — same code → same scene → same answers."""
 
     key = "colregs.encounter"
     subject = SUBJECT_CODE
@@ -24,19 +37,21 @@ class ColregsTrainer(Trainer):
     def all_entry_codes(self) -> list[str]:
         return list(SCENARIO_CODES)
 
-    def build_question(self, entry_code: str, lang: str) -> Question:
+    def build_question(
+        self, entry_code: str, lang: str, *, night_mode: bool = False
+    ) -> Question:
         scenario = generate_for_code(entry_code)
-        png_bytes = render_scenario(scenario)
+        png_bytes = render_scenario(scenario, mode="night" if night_mode else "day")
 
-        # Shuffle answers: correct + 3 wrong
-        answers = [(scenario.correct_answer, True)] + [
+        # 1 correct + up to 3 distractors, shuffled deterministically per code.
+        labelled = [(scenario.correct_answer, True)] + [
             (w, False) for w in scenario.wrong_answers[:3]
         ]
-        random.shuffle(answers)
+        labelled = _shuffle_deterministic(labelled, f"{entry_code}#shuffle")
 
-        options = []
-        correct_code = entry_code  # will be overridden below
-        for i, (text, is_correct) in enumerate(answers):
+        options: list[Option] = []
+        correct_code = "opt_0"
+        for i, (text, is_correct) in enumerate(labelled):
             code = f"opt_{i}"
             if is_correct:
                 correct_code = code
@@ -56,13 +71,12 @@ class ColregsTrainer(Trainer):
             explanation=scenario.rule_text,
         )
 
-    def build_answer_image(self, entry_code: str) -> None:
-        # No separate answer image — the question image stays, rule text is explanation
+    def build_answer_image(self, entry_code: str):
+        # Question image already shows the scene; no separate answer reveal.
         return None
 
 
 def register() -> None:
-    """Register COLREGs topic and trainer."""
     registry.register_topic(
         subject=SUBJECT_CODE,
         code="encounter",

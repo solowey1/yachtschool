@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aiogram import Router
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, FSInputFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.callbacks import AnswerCB
@@ -12,9 +12,12 @@ from app.services.quiz_engine import (
     keyboard_after_answer,
     record_and_format_result,
 )
+from app.services.scheduler import release_next_after_answer
 from app.training.registry import registry
 
 router = Router(name="quiz")
+
+_TOAST = {"correct": "✅", "skipped": "⏭", "wrong": "❌"}
 
 
 @router.callback_query(AnswerCB.filter())
@@ -25,7 +28,7 @@ async def on_answer(
     user: User,
     lang: str,
 ) -> None:
-    is_correct, body, answer_image = await record_and_format_result(
+    outcome, body, answer_image = await record_and_format_result(
         session,
         user_id=user.id,
         trainer_key=callback_data.trainer,
@@ -36,7 +39,7 @@ async def on_answer(
     )
 
     if cq.message is None:
-        await cq.answer("✅" if is_correct else "❌")
+        await cq.answer(_TOAST.get(outcome, ""))
         return
 
     topic = registry.get_trainer(callback_data.trainer).topic
@@ -51,6 +54,20 @@ async def on_answer(
             keyboard=keyboard,
         )
     except TelegramBadRequest:
-        # Message too old to edit — fall back to a follow-up reply.
         await cq.message.answer(body, reply_markup=keyboard)
-    await cq.answer("✅" if is_correct else "❌")
+    await cq.answer(_TOAST.get(outcome, ""))
+
+    # Daily-mode answer → release the next queued question (if any). For
+    # interactive answers this is a no-op (no queue entry matches).
+    if callback_data.mode == "d":
+        try:
+            await release_next_after_answer(
+                cq.bot,
+                user.id,
+                cq.from_user.id,
+                callback_data.trainer,
+                callback_data.entry,
+            )
+        except Exception:  # noqa: BLE001
+            # Logged by middleware error handler; don't break the response.
+            pass

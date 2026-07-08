@@ -111,7 +111,7 @@ def _build_visual_grid_options(
 
 
 class LetterToFlagTrainer(_BaseMcs65Trainer):
-    """Show a letter, present 4 flag images in a 2×2 grid, the user picks by number."""
+    """Show a letter, present 4 flag images in a 2×2 A/B/C/D grid."""
 
     key = "mcs65.letter_to_flag"
     topic = "flags"
@@ -131,6 +131,8 @@ class LetterToFlagTrainer(_BaseMcs65Trainer):
             options=options,
             correct_code=entry_code,
             explanation=_explain(entry_code, lang),
+            # A/B/C/D labels are baked into the grid image itself.
+            options_in_caption=False,
         )
 
     def build_answer_image(self, entry_code: str) -> Path | None:
@@ -339,7 +341,7 @@ class PennantToNameTrainer(_BasePennantTrainer):
 
 
 class NameToPennantTrainer(_BasePennantTrainer):
-    """Show the pennant name, present a 2×2 grid of pennant images, user picks by number."""
+    """Show the pennant name, present a 2×2 A/B/C/D grid of pennant images."""
 
     key = "mcs65.name_to_pennant"
 
@@ -362,6 +364,7 @@ class NameToPennantTrainer(_BasePennantTrainer):
             options=options,
             correct_code=entry_code,
             explanation=_explain_pennant(entry_code, lang),
+            options_in_caption=False,
         )
 
     def build_answer_image(self, entry_code: str) -> Path | None:
@@ -470,7 +473,11 @@ def register() -> None:
     registry.register_trainer(FlagToLetterTrainer())
     registry.register_trainer(LetterToFlagTrainer())
     registry.register_trainer(LetterToNameTrainer())
-    registry.register_trainer(NameToLetterTrainer())
+    # NameToLetterTrainer intentionally NOT registered: the prompt shows the
+    # phonetic name (e.g. «Альфа»), whose first Cyrillic letter mirrors the
+    # answer's Latin letter (Альфа→А→A). No learning happens — user just
+    # reads and clicks. LetterToNameTrainer already trains the same knowledge
+    # in the harder direction (letter → sound-alike distractor names).
     registry.register_trainer(LetterToMorseTrainer())
     registry.register_trainer(MorseToLetterTrainer())
     registry.register_trainer(LetterToMeaningTrainer())
@@ -486,7 +493,6 @@ def register() -> None:
     for tr in [
         FlagToLetterTrainer,
         LetterToNameTrainer,
-        NameToLetterTrainer,
         LetterToMorseTrainer,
         MorseToLetterTrainer,
     ]:

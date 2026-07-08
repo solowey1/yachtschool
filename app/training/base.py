@@ -48,6 +48,10 @@ class Question:
     #: Human-readable form of the correct answer, used in the result verdict
     #: («Правильный ответ: <correct_label>»). Falls back to `correct_code` when None.
     correct_label: str | None = None
+    #: When True (default), quiz_engine appends an «A. … / B. … / C. … / D. …»
+    #: list to the message caption. Visual-grid trainers set this False because
+    #: the same letters are already painted onto the prompt image itself.
+    options_in_caption: bool = True
 
 
 class Trainer(ABC):

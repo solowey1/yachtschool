@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 
@@ -110,6 +111,45 @@ def _rand_hdg() -> int:
     return random.randint(0, 359)
 
 
+# Half-angle of the sailing no-go zone. A sailboat cannot make way when its
+# heading is within this many degrees of the wind source — trying to sail
+# «into the wind» puts it «in irons». 40° covers typical cruising sailboats
+# (racers can point closer, ≈30°, but 40° is a safe general threshold).
+SAIL_DEAD_ZONE_HALF = 40
+
+
+def _sail_angle_off_wind(heading: int, wind: int) -> int:
+    """|angle| from the wind source to the bow, folded to [0, 180]. 0 means
+    dead into the wind, 180 means running dead downwind.
+    """
+    rel = (wind - heading) % 360
+    return min(rel, 360 - rel)
+
+
+def _is_sailable(heading: int, wind: int) -> bool:
+    return _sail_angle_off_wind(heading, wind) >= SAIL_DEAD_ZONE_HALF
+
+
+def _rand_sail_hdg(wind: int) -> int:
+    """Random heading that keeps a sailboat outside its no-go zone."""
+    for _ in range(200):
+        hdg = _rand_hdg()
+        if _is_sailable(hdg, wind):
+            return hdg
+    # Deterministically fall back to a broad reach (90° off wind) if
+    # 200 rolls somehow all landed in the 80°-wide dead zone.
+    return _norm(wind + 90)
+
+
+def _rand_hdg_for(vtype: VesselType, wind: int) -> int:
+    """Random heading appropriate for this vessel type. Sailboats respect
+    the dead-zone; everything else can point any way.
+    """
+    if vtype == VesselType.SAIL:
+        return _rand_sail_hdg(wind)
+    return _rand_hdg()
+
+
 def _opposing(hdg: int, spread: int = 10) -> int:
     return _norm(hdg + 180 - spread // 2 + random.randint(0, spread))
 
@@ -123,9 +163,19 @@ def _place_pair_crossing(hdg_a: int, hdg_b: int) -> tuple[tuple[float, float], t
 
 
 def _gen_head_on(vtype: VesselType) -> Scenario:
-    hdg_a = _rand_hdg()
-    hdg_b = _opposing(hdg_a)
     wind = _rand_hdg()
+    # Both vessels' headings need to be sailable when vtype=SAIL. Since A and
+    # B are ~180° apart, one being close-hauled means the other is running
+    # dead-downwind — near the opposite side of the dead zone. Constrain by
+    # rejection sampling.
+    for _ in range(200):
+        hdg_a = _rand_hdg_for(vtype, wind)
+        hdg_b = _opposing(hdg_a)
+        if vtype != VesselType.SAIL or _is_sailable(hdg_b, wind):
+            break
+    else:
+        hdg_a = _norm(wind + 90)  # beam reach — always valid for both
+        hdg_b = _opposing(hdg_a)
     (ax, ay), (bx, by) = _place_pair_crossing(hdg_a, hdg_b)
 
     label_a = VESSEL_LABELS[vtype]
@@ -152,10 +202,21 @@ def _gen_head_on(vtype: VesselType) -> Scenario:
 
 
 def _gen_overtaking(vtype_a: VesselType, vtype_b: VesselType) -> Scenario:
-    hdg_b = _rand_hdg()
-    # A overtakes B — A is behind (bearing ~180° from B's stern), similar heading
-    hdg_a = _norm(hdg_b + random.randint(-20, 20))
     wind = _rand_hdg()
+    # A overtakes B — A is behind (bearing ~180° from B's stern), similar heading.
+    # When either vessel is a sailboat, both headings must sit outside the
+    # dead zone; since A ≈ B ± 20°, if B is close-hauled A can be nudged into
+    # the no-go, so we rejection-sample.
+    for _ in range(200):
+        hdg_b = _rand_hdg_for(vtype_b, wind)
+        hdg_a = _norm(hdg_b + random.randint(-20, 20))
+        a_ok = vtype_a != VesselType.SAIL or _is_sailable(hdg_a, wind)
+        b_ok = vtype_b != VesselType.SAIL or _is_sailable(hdg_b, wind)
+        if a_ok and b_ok:
+            break
+    else:
+        hdg_b = _norm(wind + 90)
+        hdg_a = _norm(hdg_b + random.randint(-20, 20))
 
     # B ahead of A along the same course
     r = 0.18
@@ -238,9 +299,9 @@ def _gen_crossing_motor() -> Scenario:
 
 
 def _gen_sail_vs_motor() -> Scenario:
-    hdg_a = _rand_hdg()
-    hdg_b = _norm(hdg_a + random.randint(30, 150) * random.choice([-1, 1]))
     wind = _rand_hdg()
+    hdg_a = _rand_sail_hdg(wind)
+    hdg_b = _norm(hdg_a + random.randint(30, 150) * random.choice([-1, 1]))
     (ax, ay), (bx, by) = _place_pair_crossing(hdg_a, hdg_b)
 
     return Scenario(
@@ -266,9 +327,9 @@ def _gen_sail_vs_motor() -> Scenario:
 
 
 def _gen_sail_vs_fishing() -> Scenario:
-    hdg_a = _rand_hdg()
-    hdg_b = _norm(hdg_a + random.randint(30, 150) * random.choice([-1, 1]))
     wind = _rand_hdg()
+    hdg_a = _rand_sail_hdg(wind)
+    hdg_b = _norm(hdg_a + random.randint(30, 150) * random.choice([-1, 1]))
     (ax, ay), (bx, by) = _place_pair_crossing(hdg_a, hdg_b)
 
     return Scenario(
@@ -323,9 +384,18 @@ def _gen_motor_vs_nuc() -> Scenario:
 
 def _gen_sail_vs_sail() -> Scenario:
     wind = _rand_hdg()
-    hdg_a = _rand_hdg()
-    angle = random.randint(30, 150)
-    hdg_b = _norm(hdg_a + angle * random.choice([-1, 1]))
+    # Both sailboats must be outside the no-go zone. Rejection-sample until
+    # A and B are both sailable (otherwise «правый галс + ветер прямо в нос»
+    # comes out physically impossible).
+    for _ in range(200):
+        hdg_a = _rand_sail_hdg(wind)
+        angle = random.randint(30, 150)
+        hdg_b = _norm(hdg_a + angle * random.choice([-1, 1]))
+        if _is_sailable(hdg_b, wind):
+            break
+    else:
+        hdg_a = _norm(wind + 90)
+        hdg_b = _norm(wind - 90)
 
     (ax, ay), (bx, by) = _place_pair_crossing(hdg_a, hdg_b)
 
@@ -435,41 +505,93 @@ def generate_scenario() -> Scenario:
     return fn()
 
 
-# Static pool used as entry_codes for the trainer.
-# The trainer generates fresh scenarios on each call; these codes are
-# placeholder keys so the DB can track (trainer_key, entry_code) pairs.
-# We use fixed string codes so stats remain meaningful across sessions.
+# Eight deterministic variants per encounter type → 80 unique scenarios.
+# The variant suffix is used as the random seed inside generate_for_code, so
+# the same entry_code always yields the same scene. That's what lets the bot
+# rebuild a question for explanation/verdict without showing the user a
+# different layout from the one they answered.
+_TYPE_NAMES: dict[str, Callable[[], Scenario]] = {
+    "head_on_motor":   lambda: _gen_head_on(VesselType.MOTOR),
+    "head_on_sail":    lambda: _gen_head_on(VesselType.SAIL),
+    "crossing_motor":  _gen_crossing_motor,
+    "sail_motor":      _gen_sail_vs_motor,
+    "overtaking_mm":   lambda: _gen_overtaking(VesselType.MOTOR, VesselType.MOTOR),
+    "overtaking_sm":   lambda: _gen_overtaking(VesselType.SAIL, VesselType.MOTOR),
+    "overtaking_ms":   lambda: _gen_overtaking(VesselType.MOTOR, VesselType.SAIL),
+    "sail_fishing":    _gen_sail_vs_fishing,
+    "motor_nuc":       _gen_motor_vs_nuc,
+    "sail_sail":       _gen_sail_vs_sail,
+}
+
+_VARIANTS_PER_TYPE = 8
+
 SCENARIO_CODES: list[str] = [
-    "colregs_head_on_motor",
-    "colregs_head_on_sail",
-    "colregs_crossing_motor",
-    "colregs_sail_motor",
-    "colregs_overtaking_mm",
-    "colregs_overtaking_sm",
-    "colregs_overtaking_ms",
-    "colregs_sail_fishing",
-    "colregs_motor_nuc",
-    "colregs_sail_sail",
+    f"colregs_{type_name}_{variant}"
+    for type_name in _TYPE_NAMES
+    for variant in range(_VARIANTS_PER_TYPE)
 ]
 
-# Maps entry_code → generator function (deterministic type, random geometry)
-_CODE_TO_GEN: dict[str, object] = {
-    "colregs_head_on_motor": lambda: _gen_head_on(VesselType.MOTOR),
-    "colregs_head_on_sail": lambda: _gen_head_on(VesselType.SAIL),
-    "colregs_crossing_motor": _gen_crossing_motor,
-    "colregs_sail_motor": _gen_sail_vs_motor,
-    "colregs_overtaking_mm": lambda: _gen_overtaking(VesselType.MOTOR, VesselType.MOTOR),
-    "colregs_overtaking_sm": lambda: _gen_overtaking(VesselType.SAIL, VesselType.MOTOR),
-    "colregs_overtaking_ms": lambda: _gen_overtaking(VesselType.MOTOR, VesselType.SAIL),
-    "colregs_sail_fishing": _gen_sail_vs_fishing,
-    "colregs_motor_nuc": _gen_motor_vs_nuc,
-    "colregs_sail_sail": _gen_sail_vs_sail,
+# Which vessel types appear in each encounter type. The picker filters
+# scenarios so that disabling «парусные» in user settings drops every
+# scenario where either vessel is sail.
+_TYPES_INVOLVED: dict[str, frozenset[VesselType]] = {
+    "head_on_motor":   frozenset({VesselType.MOTOR}),
+    "head_on_sail":    frozenset({VesselType.SAIL}),
+    "crossing_motor":  frozenset({VesselType.MOTOR}),
+    "sail_motor":      frozenset({VesselType.SAIL, VesselType.MOTOR}),
+    "overtaking_mm":   frozenset({VesselType.MOTOR}),
+    "overtaking_sm":   frozenset({VesselType.SAIL, VesselType.MOTOR}),
+    "overtaking_ms":   frozenset({VesselType.SAIL, VesselType.MOTOR}),
+    "sail_fishing":    frozenset({VesselType.SAIL, VesselType.FISHING}),
+    "motor_nuc":       frozenset({VesselType.MOTOR, VesselType.NUC}),
+    "sail_sail":       frozenset({VesselType.SAIL}),
 }
 
 
+def involved_types(entry_code: str) -> frozenset[VesselType]:
+    """Vessel types that appear in the scenario identified by `entry_code`."""
+    return _TYPES_INVOLVED.get(_type_of(entry_code), frozenset())
+
+
+def _type_of(entry_code: str) -> str:
+    """Strip the `colregs_` prefix and trailing `_<variant>` to get the encounter type."""
+    if not entry_code.startswith("colregs_"):
+        raise KeyError(f"unknown colregs entry_code: {entry_code!r}")
+    body = entry_code[len("colregs_"):]
+    # variant index is always the last underscore-separated token
+    head, _, _tail = body.rpartition("_")
+    return head if head in _TYPE_NAMES else body
+
+
 def generate_for_code(entry_code: str) -> Scenario:
-    """Generate a random scenario of the type identified by entry_code."""
-    fn = _CODE_TO_GEN.get(entry_code)
+    """Build the scenario identified by `entry_code` — same code → same scene.
+
+    Saves/restores the global random state so seeding here doesn't perturb
+    other randomness in the same process (e.g. quiz option shuffles in
+    other trainers).
+    """
+    type_name = _type_of(entry_code)
+    fn = _TYPE_NAMES.get(type_name)
     if fn is None:
         raise KeyError(f"unknown colregs entry_code: {entry_code!r}")
-    return fn()  # type: ignore[operator]
+
+    state = random.getstate()
+    random.seed(entry_code)
+    try:
+        scenario = fn()
+    finally:
+        random.setstate(state)
+    # The generators baked their own random `code` into the Scenario; replace
+    # it with the canonical entry_code so caller sees what it asked for.
+    return Scenario(
+        code=entry_code,
+        scenario_type=scenario.scenario_type,
+        vessel_a=scenario.vessel_a,
+        vessel_b=scenario.vessel_b,
+        wind_dir=scenario.wind_dir,
+        description=scenario.description,
+        question=scenario.question,
+        correct_answer=scenario.correct_answer,
+        wrong_answers=scenario.wrong_answers,
+        rule_text=scenario.rule_text,
+    )
