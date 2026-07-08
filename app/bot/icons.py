@@ -30,6 +30,10 @@ DONATE_STAR = "6028338546736107668"  # every Stars-amount button
 SETTINGS_TIME = "5983150113483134607"
 SETTINGS_PAUSE = "6039636621416993073"
 
+# ── Training: МППСС-72 submenu ───────────────────────────────────────────────
+COLREGS_TRAIN = "5773626993010546707"       # «Тренировать»
+COLREGS_TRAIN_SETTINGS = "6037496202990194718"  # «Настройки тренажёра»
+
 # ── Reference: МСС-65 section list ───────────────────────────────────────────
 # Keys match the section codes in keyboards.MCS65_REFERENCE_SECTIONS.
 MCS65_SECTION: dict[str, str] = {

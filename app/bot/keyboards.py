@@ -255,9 +255,9 @@ def colregs_submenu(lang: str) -> InlineKeyboardMarkup:
     """
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [_btn(t("colregs.btn_start", lang), ColregsCB(action="start").pack())],
-            [_btn(t("colregs.btn_settings", lang), ColregsCB(action="settings").pack())],
-            [_btn(t("menu.back_to_section", lang), NavCB(target="training").pack())],
+            [_btn(t("colregs.btn_start", lang), ColregsCB(action="start").pack(), icon=icons.COLREGS_TRAIN)],
+            [_btn(t("colregs.btn_settings", lang), ColregsCB(action="settings").pack(), icon=icons.COLREGS_TRAIN_SETTINGS)],
+            [_back(lang, NavCB(target="training").pack())],
         ]
     )
 
@@ -296,11 +296,16 @@ def colregs_settings(lang: str, *, night_mode: bool, enabled_types: set[str]) ->
 def training_topics(lang: str, subject: str) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for topic in registry.topics(subject=subject):
+        # МСС-65 topics reuse the reference section icons where the codes line
+        # up (flags/names/morse/signals/pennants). Topics without a matching
+        # reference section (e.g. the mixed «letters» drill) get no icon.
+        icon = icons.MCS65_SECTION.get(topic.code) if subject == "mcs65" else None
         rows.append(
             [
                 _btn(
                     t(topic.title_i18n_key, lang),
                     TopicCB(subject=topic.subject, topic=topic.code).pack(),
+                    icon=icon,
                 )
             ]
         )
