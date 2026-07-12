@@ -6,6 +6,7 @@ from app.bot import icons
 from app.bot.callbacks import (
     ColregsCB,
     DonateCB,
+    MorseCB,
     NavCB,
     NextCB,
     PauseCB,
@@ -359,17 +360,33 @@ def training_topics(lang: str, subject: str) -> InlineKeyboardMarkup:
             icon = icons.MCS65_SECTION.get(topic.code) or (
                 icons.MCS65_LETTERS if topic.code == "letters" else None
             )
-        rows.append(
-            [
-                _btn(
-                    t(topic.title_i18n_key, lang),
-                    TopicCB(subject=topic.subject, topic=topic.code).pack(),
-                    icon=icon,
-                )
-            ]
+        # Morse has an extra «Мнемонические правила» page, so its button opens
+        # a small submenu instead of launching the quiz directly.
+        callback = (
+            MorseCB(action="menu").pack()
+            if (subject == "mcs65" and topic.code == "morse")
+            else TopicCB(subject=topic.subject, topic=topic.code).pack()
         )
+        rows.append([_btn(t(topic.title_i18n_key, lang), callback, icon=icon)])
     rows.append([_back(lang, NavCB(target="training").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def morse_submenu(lang: str) -> InlineKeyboardMarkup:
+    """Morse training: pick the quiz or the mnemonic-chants reference page."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn(t("morse.btn_train", lang), MorseCB(action="train").pack(), icon=icons.COLREGS_TRAIN)],
+            [_btn(t("morse.btn_mnemonics", lang), MorseCB(action="mnemonics").pack())],
+            [_back(lang, NavCB(target="training", subject="mcs65").pack())],
+        ]
+    )
+
+
+def morse_mnemonics_back(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[_back(lang, MorseCB(action="menu").pack())]]
+    )
 
 
 # ── Reference: subject picker + per-subject section lists ────────────────────
