@@ -28,18 +28,6 @@ class TopicCB(CallbackData, prefix="t"):
     topic: str
 
 
-class MorseCB(CallbackData, prefix="mo"):
-    """Morse training submenu.
-
-    action:
-      menu       — show the submenu (train / mnemonics / back)
-      train      — launch the Morse quiz
-      mnemonics  — open the mnemonic-chants reference page
-    """
-
-    action: str
-
-
 class NavCB(CallbackData, prefix="nv"):
     """Top-level navigation between menu screens.
 

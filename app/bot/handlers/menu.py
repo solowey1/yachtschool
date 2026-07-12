@@ -5,7 +5,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, FSInputFile, InputRichMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.callbacks import ColregsCB, MorseCB, NavCB, NextCB, RefCB, RefDetailCB, TopicCB
+from app.bot.callbacks import ColregsCB, NavCB, NextCB, RefCB, RefDetailCB, TopicCB
 from app.bot.handlers.reference import build_detail, build_reference_text, detail_section_for
 from app.bot.handlers.reference_colregs import (
     CHAPTER_RULES,
@@ -19,7 +19,6 @@ from app.bot.keyboards import (
     colregs_submenu,
     main_menu,
     morse_mnemonics_back,
-    morse_submenu,
     reference_colregs_chapter_back,
     reference_colregs_menu,
     reference_detail_back,
@@ -346,6 +345,13 @@ async def open_reference_colregs(cq: CallbackQuery, lang: str) -> None:
 async def open_reference_mcs65_section(
     cq: CallbackQuery, callback_data: RefCB, lang: str
 ) -> None:
+    # Morse mnemonics is a theory sub-page reached from the Morse section.
+    if callback_data.section == "morse_mnemonics":
+        from app.services import morse_mnemonics as mm
+
+        await _swap_text(cq, mm.build_text(lang), morse_mnemonics_back(lang))
+        await cq.answer()
+        return
     text = build_reference_text(callback_data.section, lang)
     keyboard = reference_section_keyboard(callback_data.section, lang)
     await _swap_text(cq, text, keyboard)
@@ -410,49 +416,6 @@ async def open_reference_detail(
 
 
 # ── Topic launch (МСС-65) ────────────────────────────────────────────────────
-
-async def _launch_topic(
-    cq: CallbackQuery, session: AsyncSession, user: User, lang: str, subject: str, topic_code: str
-) -> None:
-    """Pick a question for (subject, topic) and send it, replacing the menu."""
-    pick = await pick_for_topic(session, user.id, subject, topic_code)
-    if pick is None:
-        await _swap_text(cq, t("quiz.no_more_questions", lang), main_menu(lang))
-        await cq.answer()
-        return
-    question = build_question_from_pick(pick.trainer_key, pick.entry_code, lang)
-    prefix = t(registry.get_topic(subject, topic_code).intro_i18n_key, lang)
-    if cq.message is not None:
-        try:
-            await cq.message.delete()
-        except TelegramBadRequest:
-            pass
-    await send_question(cq.bot, cq.from_user.id, question, prefix=prefix)
-    await cq.answer()
-
-
-# ── Morse: submenu (quiz / mnemonics) ────────────────────────────────────────
-
-@router.callback_query(MorseCB.filter(F.action == "menu"))
-async def open_morse_submenu(cq: CallbackQuery, lang: str) -> None:
-    await _swap_text(cq, t("morse.menu_title", lang), morse_submenu(lang))
-    await cq.answer()
-
-
-@router.callback_query(MorseCB.filter(F.action == "train"))
-async def morse_train(
-    cq: CallbackQuery, session: AsyncSession, user: User, lang: str
-) -> None:
-    await _launch_topic(cq, session, user, lang, "mcs65", "morse")
-
-
-@router.callback_query(MorseCB.filter(F.action == "mnemonics"))
-async def morse_mnemonics(cq: CallbackQuery, lang: str) -> None:
-    from app.services import morse_mnemonics as mm
-
-    await _swap_text(cq, mm.build_text(lang), morse_mnemonics_back(lang))
-    await cq.answer()
-
 
 @router.callback_query(TopicCB.filter())
 async def start_topic(

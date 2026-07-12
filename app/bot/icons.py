@@ -42,6 +42,9 @@ COLREGS_TRAIN_SETTINGS = "6037496202990194718"  # «Настройки трен�
 # ── Training: МСС-65 «Буквы (смешанный режим)» ───────────────────────────────
 MCS65_LETTERS = "5767262289564536912"
 
+# ── Reference: Morse mnemonics page ──────────────────────────────────────────
+MCS65_MORSE_MNEMONICS = "5933678317935791830"
+
 # ── Reference: МСС-65 section list ───────────────────────────────────────────
 # Keys match the section codes in keyboards.MCS65_REFERENCE_SECTIONS.
 MCS65_SECTION: dict[str, str] = {
