@@ -372,6 +372,13 @@ def training_topics(lang: str, subject: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def morse_mnemonics_back(lang: str) -> InlineKeyboardMarkup:
+    """Back button on the mnemonics page → the Morse reference section."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[_back(lang, RefCB(subject="mcs65", section="morse").pack())]]
+    )
+
+
 # ── Reference: subject picker + per-subject section lists ────────────────────
 
 def reference_subject_picker(lang: str) -> InlineKeyboardMarkup:
@@ -452,6 +459,17 @@ def reference_section_keyboard(section: str, lang: str) -> InlineKeyboardMarkup:
             ]
         )
         rows.append([_btn(t("mcs65.pennant_label.AP", lang), RefDetailCB(code="AP").pack())])
+    elif section == "morse":
+        # Theory-only page: mnemonic chants for learning the Morse code.
+        rows.append(
+            [
+                _btn(
+                    t("morse.btn_mnemonics", lang),
+                    RefCB(subject="mcs65", section="morse_mnemonics").pack(),
+                    icon=icons.MCS65_MORSE_MNEMONICS,
+                )
+            ]
+        )
 
     rows.append([_back(lang, NavCB(target="reference", subject="mcs65").pack())])
     return InlineKeyboardMarkup(inline_keyboard=rows)
