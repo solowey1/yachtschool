@@ -18,6 +18,7 @@ from app.bot.keyboards import (
     colregs_settings,
     colregs_submenu,
     main_menu,
+    morse_mnemonics_back,
     reference_colregs_chapter_back,
     reference_colregs_menu,
     reference_detail_back,
@@ -344,6 +345,13 @@ async def open_reference_colregs(cq: CallbackQuery, lang: str) -> None:
 async def open_reference_mcs65_section(
     cq: CallbackQuery, callback_data: RefCB, lang: str
 ) -> None:
+    # Morse mnemonics is a theory sub-page reached from the Morse section.
+    if callback_data.section == "morse_mnemonics":
+        from app.services import morse_mnemonics as mm
+
+        await _swap_text(cq, mm.build_text(lang), morse_mnemonics_back(lang))
+        await cq.answer()
+        return
     text = build_reference_text(callback_data.section, lang)
     keyboard = reference_section_keyboard(callback_data.section, lang)
     await _swap_text(cq, text, keyboard)
