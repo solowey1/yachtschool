@@ -7,6 +7,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-yachtschool}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-yachtschool}
       POSTGRES_DB: ${POSTGRES_DB:-yachtschool}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     healthcheck:
